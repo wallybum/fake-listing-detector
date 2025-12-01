@@ -88,14 +88,50 @@ def run_crawler():
 
         # --- 필터 설정 ---
         try:
-            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
+            # 1. 거래방식 (매매) 설정
+            # 전체 해제
+            trade_all_btn = driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_0']")
+            driver.execute_script("arguments[0].click();", trade_all_btn)
             time.sleep(0.5)
-            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
+            
+            # 매매 선택
+            trade_sale_btn = driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_1']")
+            driver.execute_script("arguments[0].click();", trade_sale_btn)
             time.sleep(1)
-            driver.execute_script("""var cb = document.getElementById("address_group2"); if (cb && !cb.checked) document.querySelector("label[for='address_group2']").click();""")
+
+            # 2. [핵심] 동일매물 묶기 (사람처럼 클릭)
+            # 체크박스가 아니라 'label'을 클릭해야 UI가 반응함
+            group_label = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "label[for='address_group2']"))
+            )
+
+            # 현재 체크 상태 확인 (input 태그)
+            group_input = driver.find_element(By.ID, "address_group2")
+            if not group_input.is_selected():
+                # 체크가 안 되어 있다면 클릭!
+                print("   👉 [동일매물 묶기] 클릭")
+                group_label.click()
+                time.sleep(2) # 리스트가 묶일 때까지 충분히 대기
+            else:
+                print("   👉 [동일매물 묶기] 이미 체크됨")
+
+            # 3. 낮은 가격순 정렬
+            sort_btn = driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']")
+            sort_btn.click()
             time.sleep(1)
-            driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
-        except: pass
+
+        except Exception as e:
+            print(f"⚠️ 필터 설정 중 오류: {e}")
+            # 에러나도 일단 진행 (스크린샷으로 확인 가능)
+
+            # driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
+            # time.sleep(0.5)
+            # driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
+            # time.sleep(1)
+            # driver.execute_script("""var cb = document.getElementById("address_group2"); if (cb && !cb.checked) document.querySelector("label[for='address_group2']").click();""")
+            # time.sleep(1)
+            # driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
+        # except: pass
         
         time.sleep(3)
 
