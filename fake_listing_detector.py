@@ -5,9 +5,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
-import pandas as pd
 import time
 import os
+import random
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
@@ -24,35 +24,63 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# [수정 1] 한국 시간(KST) 적용을 확실하게!
 KST = timezone(timedelta(hours=9))
-NOW = datetime.now(KST) 
+NOW = datetime.now(KST)
 TODAY_STR = NOW.strftime("%Y-%m-%d")
 HOUR_STR = NOW.strftime("%H")
 
 def run_crawler():
     print(f"🚀 [GitHub Actions] {TODAY_STR} {HOUR_STR}시 크롤링 시작...")
     
-    # [수정 2] 탐지 회피 옵션 강화
     options = uc.ChromeOptions()
-    options.add_argument("--headless=new") # 최신 헤드리스
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-extensions")
-    options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # [중요] 언어 설정 (한국어) - 봇 탐지 회피용
+    options.add_argument("--lang=ko_KR")
+    
+    # User-Agent (일반 윈도우 크롬으로 위장)
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = uc.Chrome(options=options)
+
+    # [핵심] CDP 명령어로 'webdriver' 속성 숨기기 (봇 탐지 방지)
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        """
+    })
     
     try:
+        # -------------------------------------------------------
+        # [쿠키 워밍] 메인 페이지부터 천천히 진입 (사람인 척)
+        # -------------------------------------------------------
+        print("1. 네이버 메인 접속...")
+        driver.get("https://www.naver.com")
+        time.sleep(random.uniform(2, 4))
+
+        print("2. 부동산 메인으로 이동...")
+        driver.get("https://land.naver.com/")
+        time.sleep(random.uniform(2, 4))
+        
+        print(f"3. 목표 단지({COMPLEX_NO})로 이동...")
         driver.get(f"https://new.land.naver.com/complexes/{COMPLEX_NO}")
         
-        # 로딩 대기 (30초)
-        try: WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "complex_article_trad_type_filter_0")))
-        except: print("⚠️ 로딩 시간 초과 (계속 진행)")
+        # 로딩 대기 (최대 60초)
+        try: 
+            WebDriverWait(driver, 60).until(
+                EC.presence_of_element_located((By.ID, "complex_article_trad_type_filter_0"))
+            )
+            print("✅ 페이지 로딩 성공!")
+        except: 
+            print("⚠️ 로딩 시간 초과 or 차단됨")
+            driver.save_screenshot("debug_fail.png")
 
-        # 필터
+        # --- 필터 설정 ---
         try:
             driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
             time.sleep(0.5)
@@ -65,7 +93,7 @@ def run_crawler():
         
         time.sleep(3)
 
-        # 스크롤
+        # --- 스크롤 로직 ---
         print("⬇️ 데이터 로딩 중...")
         try: 
             list_area = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "articleListArea")))
@@ -77,12 +105,16 @@ def run_crawler():
         last_count = 0
         same_count_loop = 0
         
-        # 최대 60초 동안 시도
-        for _ in range(30):
+        # 최대 50번 스크롤
+        for _ in range(50):
             driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
-            try: list_area.send_keys(Keys.END)
+            try: 
+                list_area.send_keys(Keys.END)
+                time.sleep(0.3)
+                list_area.send_keys(Keys.PAGE_DOWN)
             except: pass
-            time.sleep(2.0)
+            
+            time.sleep(1.5)
             
             items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
             current_count = len(items)
@@ -90,56 +122,40 @@ def run_crawler():
 
             if current_count == last_count and current_count > 0:
                 same_count_loop += 1
-                if same_count_loop >= 3: break
+                if same_count_loop >= 5: break
             else:
                 same_count_loop = 0
             last_count = current_count
 
-        # 데이터 추출
+        # --- 데이터 추출 ---
         parent_items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
         print(f"📝 총 {len(parent_items)}개 그룹 발견.")
 
-        # [수정 3] 데이터가 0개면 스크린샷 찍기 (디버깅 핵심)
         if len(parent_items) == 0:
-            print("❌ 데이터가 없습니다. 현재 화면을 캡처합니다.")
-            driver.save_screenshot("debug_screenshot.png")
-            
-            # HTML 소스도 일부 저장 (차단 문구 확인용)
-            with open("debug_source.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            
+            print("❌ 데이터 0건. 차단되었을 가능성이 높습니다.")
+            driver.save_screenshot("debug_zero.png")
             driver.quit()
             return
 
         db_data = []
-        # ... (기존 파싱 로직 동일) ...
-        
-        def get_article_no():
-            for _ in range(3):
-                try:
-                    time.sleep(0.2)
-                    soup = BeautifulSoup(driver.page_source, "html.parser")
-                    target_th = soup.find("th", string=lambda t: t and "매물번호" in t)
-                    if target_th: return target_th.find_next_sibling("td").get_text(strip=True)
-                except: pass
-            return "-"
-
+        # ... (파싱 로직) ...
         for parent in parent_items:
             try:
                 p_soup = BeautifulSoup(parent.get_attribute('outerHTML'), "html.parser")
                 try: p_title = p_soup.select_one("div.item_title > span.text").get_text(strip=True)
                 except: continue
                 if p_title == "제목없음": continue
-                dong_name = p_title.replace("DMC파크뷰자이", "").strip()
                 
+                dong_name = p_title.replace("DMC파크뷰자이", "").strip()
                 try: raw_spec = p_soup.select_one("div.info_area .spec").get_text(strip=True)
                 except: raw_spec = ""
 
+                # 펼치기 (상세 정보 수집)
                 multi_cp_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
                 targets = []
                 if multi_cp_btn:
                     driver.execute_script("arguments[0].click();", multi_cp_btn[0])
-                    time.sleep(0.3)
+                    time.sleep(0.2)
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", parent)
                     child_container = parent.find_element(By.CSS_SELECTOR, "div.item.item--child")
                     children = child_container.find_elements(By.CSS_SELECTOR, "div.item_inner")
@@ -155,24 +171,26 @@ def run_crawler():
                     try: price = t_soup.select_one("span.price").get_text(strip=True)
                     except: price = ""
                     
-                    article_no = "-" # 속도를 위해 일단 생략하거나, 필요하면 클릭 로직 추가
+                    article_no = "-" # 클릭 생략 (속도 및 차단 방지)
                     
                     db_data.append({
                         "agent": agent, "dong": dong_name, "spec": raw_spec, "price": price,
                         "article_no": article_no, "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                     })
             except: continue
-
+        
         driver.quit()
 
+        # DB 저장
         if db_data:
             try:
                 supabase.table('real_estate_logs').insert(db_data).execute()
-                print(f"✅ [Log Table] {len(db_data)}건 저장 완료")
+                print(f"✅ [Log] {len(db_data)}건 저장 성공")
             except Exception as e:
-                print(f"❌ [Log Table] 실패: {e}")
+                print(f"❌ [Log] 저장 실패: {e}")
 
             # 통계 저장
+            import pandas as pd
             df = pd.DataFrame(db_data)
             stats_df = df['agent'].value_counts().reset_index()
             stats_df.columns = ['agent', 'count']
@@ -184,11 +202,12 @@ def run_crawler():
                 })
             try:
                 supabase.table('agent_stats').insert(stats_data).execute()
-                print(f"✅ [Stats Table] 통계 저장 완료")
+                print(f"✅ [Stats] 통계 저장 성공")
             except: pass
-    
+
     except Exception as e:
-        print(f"❌ 전체 오류: {e}")
+        print(f"❌ 에러 발생: {e}")
+        driver.save_screenshot("debug_fatal.png")
         driver.quit()
 
 if __name__ == "__main__":
