@@ -37,4 +37,4 @@ jobs:
           # 아까 설정한 비밀키를 가져와서 파이썬에 넘겨줍니다
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python daily_crawler_db.py
+        run: python fake_listing_detector.py
