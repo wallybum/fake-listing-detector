@@ -16,7 +16,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
+    
+      - name: 시스템 패키지 설치 (Xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          
       - name: 크롬 설치
         run: |
           sudo apt-get update
