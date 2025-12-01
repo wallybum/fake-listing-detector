@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
 # ==================================================================
