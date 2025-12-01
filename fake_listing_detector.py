@@ -24,6 +24,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+KST = timezone(timedelta(hours=9))
 NOW = datetime.now()
 TODAY_STR = NOW.strftime("%Y-%m-%d")
 HOUR_STR = NOW.strftime("%H")
