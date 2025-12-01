@@ -33,10 +33,18 @@ def run_crawler():
     
     # --- Chrome 옵션 (서버용 Headless 설정) ---
     options = uc.ChromeOptions()
-    options.add_argument("--headless") 
+
+    # 1. 헤드리스 모드 (화면 없이 실행) - 'new' 모드 사용 권장
+    options.add_argument("--headless=new")
+
+    # 2. 리눅스 환경 설정
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
+
+    # 3. [핵심] 봇 탐지 우회 설정 (사람인 척 위장)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = uc.Chrome(options=options)
     driver.get(f"https://new.land.naver.com/complexes/{COMPLEX_NO}")
