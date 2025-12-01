@@ -11,6 +11,9 @@ import random
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
+# ▼▼▼ [추가] 가상 디스플레이 라이브러리 ▼▼▼
+from pyvirtualdisplay import Display
+
 # ==================================================================
 # [설정] 환경변수
 # ==================================================================
@@ -31,9 +34,12 @@ HOUR_STR = NOW.strftime("%H")
 
 def run_crawler():
     print(f"🚀 [GitHub Actions] {TODAY_STR} {HOUR_STR}시 크롤링 시작...")
+
+    display = Display(visible=0, size=(1920, 1080))
+    display.start()
     
     options = uc.ChromeOptions()
-    options.add_argument("--headless=new")
+   # options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
@@ -135,6 +141,7 @@ def run_crawler():
             print("❌ 데이터 0건. 차단되었을 가능성이 높습니다.")
             driver.save_screenshot("debug_zero.png")
             driver.quit()
+            display.stop() # [핵심] 가상 모니터 끄기
             return
 
         db_data = []
