@@ -2,11 +2,7 @@ name: 부동산 크롤러 (Hourly)
 
 on:
   schedule:
-    # 매 시간 0분마다 실행 (UTC 기준)
-    # 예: 1시, 2시, 3시... 24시간 내내 돌아갑니다.
     - cron: '0 * * * *'
-  
-  # 수동으로 실행 버튼을 누를 수 있게 해주는 옵션
   workflow_dispatch:
 
 jobs:
@@ -14,27 +10,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 코드 가져오기
-        uses: actions/checkout@v3
-
-      - name: 파이썬 3.9 설정
+      - uses: actions/checkout@v3
+      
+      - name: 파이썬 설정
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # Chrome 브라우저 설치 (필수)
-      - name: 크롬 브라우저 설치
+      - name: 크롬 설치
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
       - name: 라이브러리 설치
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
           
       - name: 크롤러 실행
         env:
-          # 아까 설정한 비밀키를 가져와서 파이썬에 넘겨줍니다
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python fake_listing_detector.py
+      
+      # ▼▼▼ [추가됨] 실패하든 성공하든 스크린샷 업로드 ▼▼▼
+      - name: 디버깅 파일 업로드 (스크린샷)
+        if: always() 
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            debug_screenshot.png
+            debug_source.html
