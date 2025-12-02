@@ -44,6 +44,7 @@ def run_crawler():
     options.add_argument("--lang=ko_KR")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
+    # 버전 고정 (GitHub Actions 환경 대응)
     driver = uc.Chrome(options=options, version_main=142)
     
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -82,15 +83,13 @@ def run_crawler():
             print(f"⚠️ 필터 오류: {e}")
         
         # ------------------------------------------------------------------
-        # 3. [핵심 수정] 스크롤 로직: 요소 견인(Tractor) 방식
+        # 3. 스크롤 로직
         # ------------------------------------------------------------------
         print("⬇️ 데이터 로딩 중 (전체 매물 확보)...")
         
-        # 리스트 영역 찾기
         try: list_area = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "articleListArea")))
         except: list_area = driver.find_element(By.TAG_NAME, "body")
 
-        # 포커스
         try: 
             actions = ActionChains(driver)
             actions.move_to_element(list_area).click().perform()
@@ -99,31 +98,25 @@ def run_crawler():
         last_count = 0
         same_count_loop = 0
         
-        # 최대 50번 반복
         for _ in range(50):
-            # 현재 로딩된 아이템들 찾기
             items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
             curr_count = len(items)
             
             print(f"   ... 스크롤 중 (현재 {curr_count}개)")
             
-            # [핵심] 맨 마지막 아이템을 화면 중앙으로 강제 이동 (로딩 유발)
             if curr_count > 0:
                 last_item = items[-1]
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", last_item)
             
-            # 보조 수단: JS 스크롤 + 키보드
             driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
-            try:
-                list_area.send_keys(Keys.PAGE_DOWN)
+            try: list_area.send_keys(Keys.PAGE_DOWN)
             except: pass
 
-            time.sleep(2.0) # 로딩 대기
+            time.sleep(2.0)
             
-            # 개수 변화 체크
             if curr_count == last_count and curr_count > 0:
                 same_count_loop += 1
-                if same_count_loop >= 5: # 10초간 변화 없으면 종료
+                if same_count_loop >= 5:
                     print(f"   ✅ 전체 목록 로딩 완료 (최종 {curr_count}개 그룹)")
                     break
             else:
@@ -132,7 +125,7 @@ def run_crawler():
             last_count = curr_count
 
         # ------------------------------------------------------------------
-        # 4. 데이터 추출
+        # 4. 데이터 추출 (매물번호 로직 추가됨)
         # ------------------------------------------------------------------
         parent_items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
         print(f"📝 총 {len(parent_items)}개 그룹 발견.")
@@ -156,7 +149,7 @@ def run_crawler():
                 try: spec = soup.select_one("div.info_area .spec").get_text(strip=True)
                 except: spec = ""
 
-                # 펼치기 (중요!)
+                # 펼치기 로직
                 multi_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
                 targets = []
                 
@@ -172,6 +165,9 @@ def run_crawler():
                 else:
                     targets.append(parent.find_element(By.CSS_SELECTOR, "div.item_inner"))
 
+                # ----------------------------------------------------------
+                # [수정] 매물번호(article_no) 추출 로직 적용
+                # ----------------------------------------------------------
                 for target in targets:
                     t_soup = BeautifulSoup(target.get_attribute('outerHTML'), "html.parser")
                     try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
@@ -179,7 +175,15 @@ def run_crawler():
                     try: price = t_soup.select_one("span.price").get_text(strip=True)
                     except: price = ""
                     
-                    article_no = "-" 
+                    # [여기 수정됨] 체크박스 value에서 번호 추출
+                    article_no = "-"
+                    try:
+                        # input 태그 중 name이 'item_check'인 것을 찾음 (네이버 부동산 구조)
+                        checkbox = t_soup.select_one("input[name='item_check']")
+                        if checkbox and checkbox.get('value'):
+                            article_no = checkbox.get('value')
+                    except Exception:
+                        pass
                     
                     db_data.append({
                         "agent": agent, "dong": dong, "spec": spec, "price": price,
@@ -190,23 +194,20 @@ def run_crawler():
         driver.quit()
 
         # ------------------------------------------------------------------
-        # 5. DB 저장 (에러 수정됨)
+        # 5. DB 저장
         # ------------------------------------------------------------------
         if db_data:
-            # (1) 상세 로그 저장
             try:
                 supabase.table('real_estate_logs').insert(db_data).execute()
                 print(f"✅ [Log] 총 {len(db_data)}건 저장 완료")
             except Exception as e:
                 print(f"❌ [Log] 저장 실패: {e}")
 
-            # (2) 통계 저장 [변수명 에러 수정됨]
             df = pd.DataFrame(db_data)
             stats_df = df['agent'].value_counts().reset_index()
             stats_df.columns = ['agent', 'count']
             
             stats_data = []
-            # [수정] stats.iterrows() -> stats_df.iterrows()
             for _, row in stats_df.iterrows():
                 stats_data.append({
                     "agent": row['agent'],
