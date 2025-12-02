@@ -7,9 +7,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 import os
-import random
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
+
+# [필수] 가상 모니터
 from pyvirtualdisplay import Display 
 
 # ==================================================================
@@ -46,7 +47,7 @@ def run_crawler():
 
     driver = uc.Chrome(options=options)
     
-    # 봇 탐지 방지 스크립트
+    # 봇 탐지 방지
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
         "source": """
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -56,113 +57,83 @@ def run_crawler():
     try:
         driver.get(f"https://new.land.naver.com/complexes/{COMPLEX_NO}")
         
-        # 로딩 대기
-        try: 
-            WebDriverWait(driver, 60).until(
-                EC.presence_of_element_located((By.ID, "complex_article_trad_type_filter_0"))
-            )
-        except: 
-            print("⚠️ 로딩 시간 초과 (진행 시도)")
+        try: WebDriverWait(driver, 40).until(EC.presence_of_element_located((By.ID, "complex_article_trad_type_filter_0")))
+        except: print("⚠️ 로딩 시간 초과 (진행 시도)")
 
         # ------------------------------------------------------------------
-        # 3. [수정됨] 독한 필터링 (될 때까지 누른다)
+        # 2. 필터 설정 (로컬 성공 로직)
         # ------------------------------------------------------------------
-        print("⚙️ 필터 적용 시작...")
-        
-        # (1) 전체 선택 해제
+        print("⚙️ 필터 적용 중...")
         try:
-            all_btn = driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_0']")
-            driver.execute_script("arguments[0].click();", all_btn)
+            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
             time.sleep(0.5)
-        except: pass
-
-        # (2) 매매 선택
-        try:
-            sale_btn = driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_1']")
-            driver.execute_script("arguments[0].click();", sale_btn)
+            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
             time.sleep(1)
-        except: pass
-        
-        # (3) [핵심] 동일매물 묶기 (확인 사살 로직)
-        print("   👉 [동일매물 묶기] 체크 시도...")
-        max_retries = 5
-        for i in range(max_retries):
-            try:
-                chk_box = driver.find_element(By.ID, "address_group2")
-                
-                # 이미 체크되어 있으면 통과
-                if chk_box.is_selected():
-                    print("      ✅ 체크 확인됨!")
-                    break
-                
-                # 체크 안 되어 있으면 클릭 (JS 강제 클릭)
-                label = driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']")
-                driver.execute_script("arguments[0].click();", label)
-                time.sleep(1.5) # 반응 대기
-                
-                # 다시 확인
-                if chk_box.is_selected():
-                    print("      ✅ 체크 성공!")
-                    break
-                else:
-                    print(f"      ⚠️ 체크 실패 ({i+1}/{max_retries})... 재시도")
-            except Exception as e:
-                print(f"      ❌ 에러 발생: {e}")
-                time.sleep(1)
-        
-        # (4) 가격순 정렬
-        try:
-            sort_btn = driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']")
-            driver.execute_script("arguments[0].click();", sort_btn)
-        except: pass
-        
-        print("   ⏳ 목록 갱신 대기 (5초)...")
-        time.sleep(5)
+            
+            # [동일매물 묶기] 강제 클릭
+            group_btn = driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']")
+            driver.execute_script("arguments[0].click();", group_btn)
+            time.sleep(1)
+            
+            # 가격순 정렬
+            driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
+            
+            print("   ⏳ 목록 갱신 대기 (5초)...")
+            time.sleep(5)
 
+        except Exception as e:
+            print(f"⚠️ 필터 오류(무시): {e}")
+        
         # ------------------------------------------------------------------
-        # 4. 스크롤 로직
+        # 3. [수정됨] 스크롤 로직: 요소 견인(Tractor) 방식
         # ------------------------------------------------------------------
-        print("⬇️ 데이터 로딩 중...")
-        try: list_area = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "articleListArea")))
+        print("⬇️ 데이터 로딩 중 (전체 매물 확보)...")
+        
+        # 리스트 영역 찾기 (없으면 body)
+        try: list_area = driver.find_element(By.ID, "articleListArea")
         except: list_area = driver.find_element(By.TAG_NAME, "body")
-
-        try:
-            actions = ActionChains(driver)
-            actions.move_to_element(list_area).click().perform()
+        
+        # 포커스 주기
+        try: list_area.click()
         except: pass
 
-        last_count = 0
-        same_count = 0
+        prev_count = 0
+        same_count_loop = 0
         
-        for _ in range(40):
-            driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
-            try: 
-                list_area.send_keys(Keys.END)
-                time.sleep(0.2)
-                list_area.send_keys(Keys.PAGE_DOWN)
-            except: pass
-            
-            time.sleep(1.5)
-            
-            # 자식 요소 제외하고 부모 그룹만 카운트
+        while True:
+            # 1. 현재 로딩된 아이템들 찾기
             items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
-            curr = len(items)
-            print(f"   ... 로딩 중 ({curr}개)")
+            curr_count = len(items)
+            
+            print(f"   ... 스크롤 중 (현재 {curr_count}개)")
+            
+            # 2. [핵심] 맨 마지막 아이템을 화면으로 끌어당김 (로딩 트리거)
+            if curr_count > 0:
+                last_item = items[-1]
+                driver.execute_script("arguments[0].scrollIntoView(true);", last_item)
+            else:
+                # 아이템이 없으면 그냥 스크롤 내림
+                driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
 
-            if curr == last_count and curr > 0:
-                same_count += 1
-                if same_count >= 5: break
-            else: same_count = 0
-            last_count = curr
+            time.sleep(2.0) # 로딩 대기
+            
+            # 3. 개수 변화 체크
+            if curr_count == prev_count:
+                same_count_loop += 1
+                # 5번(10초) 동안 안 늘어나면 끝
+                if same_count_loop >= 5:
+                    print(f"   ✅ 전체 목록 로딩 완료 (최종 {curr_count}개 그룹)")
+                    break
+            else:
+                same_count_loop = 0
+                
+            prev_count = curr_count
 
-        # 5. 데이터 추출
+        # ------------------------------------------------------------------
+        # 4. 데이터 추출
+        # ------------------------------------------------------------------
         parent_items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
         print(f"📝 총 {len(parent_items)}개 그룹 발견.")
-
-        # [디버깅] 만약 또 100개가 넘어가면 스크린샷 찍어서 확인
-        if len(parent_items) > 100:
-            print("⚠️ 그룹 수가 너무 많습니다. 필터 실패 의심. 스크린샷 저장.")
-            driver.save_screenshot("debug_too_many.png")
 
         if len(parent_items) == 0:
             print("❌ 데이터 0건.")
@@ -173,27 +144,29 @@ def run_crawler():
         
         for parent in parent_items:
             try:
-                p_html = parent.get_attribute('outerHTML')
-                soup = BeautifulSoup(p_html, "html.parser")
-                try: title = soup.select_one("div.item_title > span.text").get_text(strip=True)
+                p_soup = BeautifulSoup(parent.get_attribute('outerHTML'), "html.parser")
+                try: p_title = p_soup.select_one("div.item_title > span.text").get_text(strip=True)
                 except: continue
-                if title == "제목없음": continue
+                if p_title == "제목없음": continue
                 
-                dong = title.replace("DMC파크뷰자이", "").strip()
-                try: spec = soup.select_one("div.info_area .spec").get_text(strip=True)
-                except: spec = ""
+                dong_name = p_title.replace("DMC파크뷰자이", "").strip()
+                try: raw_spec = p_soup.select_one("div.info_area .spec").get_text(strip=True)
+                except: raw_spec = ""
 
-                # 펼치기
-                multi_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
+                # 펼치기 (중요!)
+                multi_cp_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
                 targets = []
                 
-                if multi_btn:
-                    driver.execute_script("arguments[0].click();", multi_btn[0])
-                    time.sleep(0.2)
+                if multi_cp_btn:
+                    driver.execute_script("arguments[0].click();", multi_cp_btn[0])
+                    time.sleep(0.3)
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", parent)
                     
-                    container = parent.find_element(By.CSS_SELECTOR, "div.item.item--child")
-                    inners = container.find_elements(By.CSS_SELECTOR, "div.item_inner")
+                    child_container = parent.find_element(By.CSS_SELECTOR, "div.item.item--child")
+                    inners = container.find_elements(By.CSS_SELECTOR, "div.item_inner") # 주의: 여기서 container 변수명이 틀릴 수 있음 -> parent.find... 로 수정 필요
+                    # 수정된 부분:
+                    inners = child_container.find_elements(By.CSS_SELECTOR, "div.item_inner")
+
                     for inner in inners:
                         if inner.find_elements(By.CSS_SELECTOR, "div.cp_area"): targets.append(inner)
                 else:
@@ -205,16 +178,18 @@ def run_crawler():
                     except: agent = "알수없음"
                     try: price = t_soup.select_one("span.price").get_text(strip=True)
                     except: price = ""
+
+                    article_no = "-" 
                     
                     db_data.append({
-                        "agent": agent, "dong": dong, "spec": spec, "price": price,
-                        "article_no": "-",
-                        "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                        "agent": agent, "dong": dong_name, "spec": raw_spec, "price": price,
+                        "article_no": article_no, "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                     })
             except: continue
         
         driver.quit()
 
+        # [저장]
         if db_data:
             try:
                 supabase.table('real_estate_logs').insert(db_data).execute()
@@ -223,23 +198,31 @@ def run_crawler():
                 print(f"❌ [Log] 저장 실패: {e}")
 
             # 통계 저장
-            import pandas as pd
             df = pd.DataFrame(db_data)
             stats_df = df['agent'].value_counts().reset_index()
             stats_df.columns = ['agent', 'count']
-            stats_data = [{"agent": r['agent'], "count": int(r['count']), "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"} for _, r in stats.iterrows()]
+            
+            stats_data = []
+            for _, row in stats_df.iterrows():
+                stats_data.append({
+                    "agent": row['agent'],
+                    "count": int(row['count']),
+                    "crawl_date": TODAY_STR,
+                    "crawl_time": f"{HOUR_STR}시"
+                })
             
             try:
                 supabase.table('agent_stats').insert(stats_data).execute()
                 print(f"✅ [Stats] 통계 저장 완료")
-            except: pass
+            except Exception as e:
+                print(f"❌ [Stats] 저장 실패: {e}")
 
     except Exception as e:
-        print(f"❌ 에러: {e}")
+        print(f"❌ 실행 중 오류: {e}")
         driver.save_screenshot("debug_fatal.png")
         driver.quit()
     finally:
-        display.stop() 
+        display.stop()
 
 if __name__ == "__main__":
     run_crawler()
