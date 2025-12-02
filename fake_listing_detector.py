@@ -8,7 +8,6 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import os
-import random
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from pyvirtualdisplay import Display 
@@ -46,7 +45,6 @@ def run_crawler():
 
     driver = uc.Chrome(options=options)
     
-    # 봇 탐지 방지
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
         "source": """
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -67,7 +65,7 @@ def run_crawler():
             driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
             time.sleep(1)
             
-            # 동일매물 묶기
+            # [동일매물 묶기] 체크 (필수)
             group_input = driver.find_element(By.ID, "address_group2")
             if not group_input.is_selected():
                 print("   👉 [동일매물 묶기] 클릭")
@@ -82,141 +80,159 @@ def run_crawler():
 
         except Exception as e:
             print(f"⚠️ 필터 오류: {e}")
-
-        # ------------------------------------------------------------------
-        # [핵심] 목표 개수 확인 및 강제 스크롤
-        # ------------------------------------------------------------------
-        print("⬇️ 데이터 로딩 시작...")
         
-        # 1. 화면에 표시된 '총 매물 수' 확인 (목표치 설정)
-        target_count = 0
-        try:
-            count_text = driver.find_element(By.CSS_SELECTOR, "div.total > span.count").text
-            target_count = int(count_text.replace(",", ""))
-            print(f"🎯 네이버 표시 총 매물 수: {target_count}건 (이만큼 수집해야 함)")
-        except:
-            print("⚠️ 총 매물 수 텍스트를 못 찾음. 무한 스크롤 모드로 진행.")
-            target_count = 9999 # 못 찾으면 최대한 많이
+        # --- 스크롤 로직 ---
+        print("⬇️ 데이터 로딩 중...")
+        try: 
+            list_area = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "articleListArea")))
+            actions = ActionChains(driver)
+            actions.move_to_element(list_area).click().perform()
+        except: 
+            list_area = driver.find_element(By.TAG_NAME, "body")
 
-        # 2. 스크롤 영역 찾기
-        try: list_area = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "articleListArea")))
-        except: list_area = driver.find_element(By.TAG_NAME, "body")
-
-        # 3. 반복 스크롤
-        prev_len = 0
+        last_count = 0
         same_count_loop = 0
         
-        # 최대 100번 시도
-        for i in range(100):
-            # 현재 로딩된 개수 확인
-            items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
-            curr_len = len(items)
-            
-            print(f"   [{i+1}] 스크롤 중... (현재 {curr_len} / 목표 {target_count})")
-            
-            # 목표 달성 시 종료
-            if curr_len >= target_count and target_count > 0:
-                print("   ✅ 목표 개수 도달! 스크롤 종료.")
-                break
-
-            # --- [3중 강제 스크롤 액션] ---
-            
-            # Action A: JS로 리스트 영역 바닥으로 내리기
+        while True:
             driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
-            
-            # Action B: 맨 마지막 아이템을 화면 중앙으로 끌어오기 (가장 효과적)
-            if items:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", items[-1])
-            
-            # Action C: Body에 키보드 입력
-            try:
-                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.PAGE_DOWN)
+            try: 
+                list_area.send_keys(Keys.END)
+                time.sleep(0.3)
+                list_area.send_keys(Keys.PAGE_DOWN)
             except: pass
             
-            # 로딩 대기 (조금 길게)
             time.sleep(2.0)
             
-            # 변화 체크
-            if curr_len == prev_len:
+            items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
+            current_count = len(items)
+            print(f"   ... 스크롤 중 (현재 {current_count}개 그룹)")
+
+            if current_count == last_count and current_count > 0:
                 same_count_loop += 1
-                # 5번 연속(10초) 안 늘어나면, 더 이상 데이터가 없다고 판단
                 if same_count_loop >= 5:
-                    print(f"   ⚠️ 더 이상 로딩되지 않음. (최종 {curr_len}건)")
+                    print("   ✅ 스크롤 완료")
                     break
             else:
-                same_count_loop = 0 # 늘어났으면 리셋
-            
-            prev_len = curr_len
+                same_count_loop = 0
+            last_count = current_count
 
-        # ------------------------------------------------------------------
-        # 5. 데이터 추출
-        # ------------------------------------------------------------------
+        # --- 데이터 추출 (핵심 수정) ---
         parent_items = driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
-        print(f"📝 최종 수집 대상: {len(parent_items)}개 그룹")
+        print(f"📝 총 {len(parent_items)}개 그룹 발견. 상세 수집 시작...")
         
+        if len(parent_items) == 0:
+            print("❌ 데이터 0건.")
+            return
+
         db_data = []
         
-        # 펼치기 및 상세 수집
         for idx, parent in enumerate(parent_items):
             try:
-                if idx % 20 == 0: print(f"   Processing {idx+1}/{len(parent_items)}...")
-
+                # 부모 정보 파싱 (동, 스펙, 가격 범위 등)
                 p_html = parent.get_attribute('outerHTML')
                 soup = BeautifulSoup(p_html, "html.parser")
+                
                 try: title = soup.select_one("div.item_title > span.text").get_text(strip=True)
                 except: continue
                 if title == "제목없음": continue
                 
                 dong = title.replace("DMC파크뷰자이", "").strip()
+                
                 try: spec = soup.select_one("div.info_area .spec").get_text(strip=True)
                 except: spec = ""
 
-                # 펼치기
-                multi_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
-                targets = []
+                # ======================================================
+                # [핵심] 자식 매물(개별 중개사) 모두 긁어오기 로직
+                # ======================================================
                 
+                # 1. "중개사 N곳" 버튼이 있는지 확인
+                multi_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
+                
+                targets = [] # 정보를 추출할 대상 요소들 리스트
+
                 if multi_btn:
+                    # 묶음 매물이면 -> 펼치기 버튼 클릭!
                     driver.execute_script("arguments[0].click();", multi_btn[0])
-                    time.sleep(0.2)
-                    # 펼친 후 화면 보정
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", parent)
+                    time.sleep(0.3) # 펼침 대기
                     
-                    child_container = parent.find_element(By.CSS_SELECTOR, "div.item.item--child")
-                    inners = child_container.find_elements(By.CSS_SELECTOR, "div.item_inner")
-                    for inner in inners:
-                        if inner.find_elements(By.CSS_SELECTOR, "div.cp_area"): targets.append(inner)
+                    # 펼쳐진 자식 컨테이너 찾기
+                    # 주의: parent 안에 item--child가 생성됨
+                    try:
+                        child_container = parent.find_element(By.CSS_SELECTOR, "div.item.item--child")
+                        # 그 안의 개별 매물(item_inner)들을 모두 찾음
+                        inners = child_container.find_elements(By.CSS_SELECTOR, "div.item_inner")
+                        
+                        # 로딩바 등 가짜 요소 제외하고 진짜 정보(cp_area) 있는 것만 담기
+                        for inner in inners:
+                            if inner.find_elements(By.CSS_SELECTOR, "div.cp_area"):
+                                targets.append(inner)
+                    except:
+                        # 펼치기 실패시 부모라도 담음
+                        targets.append(parent.find_element(By.CSS_SELECTOR, "div.item_inner"))
                 else:
+                    # 단독 매물이면 -> 부모 자신을 타겟으로
                     targets.append(parent.find_element(By.CSS_SELECTOR, "div.item_inner"))
 
+                # 2. 확보된 타겟들(개별 중개사 매물) 순회하며 저장
                 for target in targets:
-                    t_soup = BeautifulSoup(target.get_attribute('outerHTML'), "html.parser")
+                    t_html = target.get_attribute('outerHTML')
+                    t_soup = BeautifulSoup(t_html, "html.parser")
+                    
+                    # 중개사 이름
                     try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
                     except: agent = "알수없음"
-                    try: price = t_soup.select_one("span.price").get_text(strip=True)
-                    except: price = ""
                     
+                    # 가격 (개별 가격)
+                    try: price = t_soup.select_one("span.price").get_text(strip=True)
+                    except: 
+                        # 개별 가격 없으면 부모의 가격 범위라도 가져옴
+                        try: price = soup.select_one("span.price").get_text(strip=True)
+                        except: price = "가격없음"
+                    
+                    # 매물번호 (클릭 안하고 리스트에 노출된 정보가 있다면 좋겠지만, 보통 클릭해야 나옴)
+                    # 여기서는 속도를 위해 "-"로 두거나, 필요시 클릭 로직 추가
+                    article_no = "-" 
+                    
+                    # DB 리스트에 추가
                     db_data.append({
-                        "agent": agent, "dong": dong, "spec": spec, "price": price,
-                        "article_no": "-",
-                        "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                        "agent": agent, 
+                        "dong": dong, 
+                        "spec": spec, 
+                        "price": price,
+                        "article_no": article_no, 
+                        "crawl_date": TODAY_STR, 
+                        "crawl_time": f"{HOUR_STR}시"
                     })
-            except: continue
+
+            except Exception as e:
+                continue # 특정 매물 에러나도 다음으로 넘어감
         
         driver.quit()
 
+        # ======================================================
         # DB 저장
+        # ======================================================
         if db_data:
+            # 1. 상세 로그 (real_estate_logs)
             try:
                 supabase.table('real_estate_logs').insert(db_data).execute()
-                print(f"✅ [Log] {len(db_data)}건 저장 완료")
+                print(f"✅ [Log] 총 {len(db_data)}건 저장 완료")
             except Exception as e:
                 print(f"❌ [Log] 저장 실패: {e}")
 
-            # 통계 저장
+            # 2. 통계 저장 (agent_stats)
             df = pd.DataFrame(db_data)
             stats_df = df['agent'].value_counts().reset_index()
             stats_df.columns = ['agent', 'count']
-            stats_data = [{"agent": r['agent'], "count": int(r['count']), "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"} for _, r in stats_df.iterrows()]
+            
+            stats_data = []
+            for _, row in stats_df.iterrows():
+                stats_data.append({
+                    "agent": row['agent'],
+                    "count": int(row['count']),
+                    "crawl_date": TODAY_STR,
+                    "crawl_time": f"{HOUR_STR}시"
+                })
             
             try:
                 supabase.table('agent_stats').insert(stats_data).execute()
@@ -224,11 +240,9 @@ def run_crawler():
             except: pass
         else:
             print("❌ 수집된 데이터 0건")
-            driver.save_screenshot("debug_no_data.png")
 
     except Exception as e:
-        print(f"❌ 에러 발생: {e}")
-        driver.save_screenshot("debug_fatal.png")
+        print(f"❌ 실행 중 오류: {e}")
         driver.quit()
     finally:
         display.stop()
