@@ -169,26 +169,70 @@ def run_crawler():
                 # [수정] 매물번호(article_no) 추출 로직 적용
                 # ----------------------------------------------------------
                 for target in targets:
-                    t_soup = BeautifulSoup(target.get_attribute('outerHTML'), "html.parser")
+                    # 1. HTML 파싱 (텍스트 정보용)
+                    t_html = target.get_attribute('outerHTML')
+                    t_soup = BeautifulSoup(t_html, "html.parser")
+
                     try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
                     except: agent = "알수없음"
+                    
                     try: price = t_soup.select_one("span.price").get_text(strip=True)
                     except: price = ""
-                    
-                    # [여기 수정됨] 체크박스 value에서 번호 추출
+
                     article_no = "-"
+
+                    # 방법 1: Selenium으로 직접 속성 값 가져오기 (가장 정확함)
+                    # 네이버 부동산은 item_inner 태그에 data-article-no="번호" 형태로 값을 숨겨둡니다.
                     try:
-                        # input 태그 중 name이 'item_check'인 것을 찾음 (네이버 부동산 구조)
-                        checkbox = t_soup.select_one("input[name='item_check']")
-                        if checkbox and checkbox.get('value'):
-                            article_no = checkbox.get('value')
-                    except Exception:
-                        pass
+                        raw_no = target.get_attribute("data-article-no")
+                        if raw_no:
+                            article_no = raw_no
+                    except: pass
+
+
+                    # 방법 2: 방법 1 실패 시, HTML 태그 분석 (비상용)
+                    if article_no == "-" or not article_no:
+                        try:
+                            inner_div = t_soup.select_one("div.item_inner")
+                            if inner_div and inner_div.has_attr("data-article-no"):
+                                article_no = inner_div["data-article-no"]
+                        except: pass
+
+                    # 방법 3: 체크박스 값 확인 (구버전 호환)
+                    if article_no == "-" or not article_no:
+                        try:
+                            checkbox = t_soup.select_one("input[name='item_check']")
+                            if checkbox and checkbox.has_attr('value'):
+                                article_no = checkbox['value']
+                        except: pass
                     
                     db_data.append({
                         "agent": agent, "dong": dong, "spec": spec, "price": price,
                         "article_no": article_no, "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                     })
+
+
+                    # ------------------------------
+                    # t_soup = BeautifulSoup(target.get_attribute('outerHTML'), "html.parser")
+                    # try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
+                    # except: agent = "알수없음"
+                    # try: price = t_soup.select_one("span.price").get_text(strip=True)
+                    # except: price = ""
+                    
+                    # [여기 수정됨] 체크박스 value에서 번호 추출
+                    # article_no = "-"
+                    # try:
+                    #     # input 태그 중 name이 'item_check'인 것을 찾음 (네이버 부동산 구조)
+                    #     checkbox = t_soup.select_one("input[name='item_check']")
+                    #     if checkbox and checkbox.get('value'):
+                    #         article_no = checkbox.get('value')
+                    # except Exception:
+                    #     pass
+                    
+                    # db_data.append({
+                    #     "agent": agent, "dong": dong, "spec": spec, "price": price,
+                    #     "article_no": article_no, "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                    # })
             except: continue
         
         driver.quit()
