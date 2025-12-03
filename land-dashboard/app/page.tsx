@@ -249,7 +249,7 @@ export default function Dashboard() {
         
         <div className="flex items-center gap-2 mb-4">
           <LayoutDashboard className="text-blue-600 w-7 h-7" />
-          <h1 className="text-2xl font-bold text-gray-800">부동산 매물 관제센터</h1>
+          <h1 className="text-2xl font-bold text-gray-800">DMC 파크뷰자이 매물 현황 분석</h1>
         </div>
 
         {/* 컨트롤러 */}
