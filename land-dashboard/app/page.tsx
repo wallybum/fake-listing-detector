@@ -185,9 +185,12 @@ export default function Dashboard() {
       intersect: true 
     },
     plugins: {
+      // legend: {
+      //   position: 'right' as const,
+      //   labels: { usePointStyle: true, boxWidth: 8 }
+      // },
       legend: {
-        position: 'right' as const,
-        labels: { usePointStyle: true, boxWidth: 8 }
+        display: false, 
       },
       tooltip: {
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -303,13 +306,59 @@ export default function Dashboard() {
         {/* 차트 영역 */}
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6">
           <div className="w-full h-[500px]">
-            {loading ? (
+            {/* {loading ? (
               <div className="h-full flex items-center justify-center text-gray-400">데이터 불러오는 중...</div>
             ) : chartData ? (
               <Line options={options} data={chartData} />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-400">데이터 없음</div>
+            )} */}
+
+            {/* 차트 영역 수정 */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6">
+          {/* 높이 지정 및 Flex 레이아웃 적용 */}
+          <div className="w-full h-[500px] flex flex-col md:flex-row gap-4">
+            
+            {/* 1. 왼쪽: 차트 (flex-1로 남은 공간 차지) */}
+            <div className="flex-1 h-full min-h-[300px]">
+              {loading ? (
+                <div className="h-full flex items-center justify-center text-gray-400">데이터 불러오는 중...</div>
+              ) : chartData ? (
+                <Line options={options} data={chartData} />
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400">데이터 없음</div>
+              )}
+            </div>
+
+            {/* 2. 오른쪽: 커스텀 범례 (너비 고정, 스크롤 적용) */}
+            {!loading && chartData && (
+              <div className="w-full md:w-64 h-full border-l border-gray-100 pl-4 flex flex-col">
+                <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
+                  부동산 목록 ({chartData.datasets.length})
+                </h3>
+                {/* overflow-y-auto로 세로 스크롤 활성화 */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                  <ul className="space-y-1">
+                    {chartData.datasets.map((dataset: any) => (
+                      <li key={dataset.label} className="flex items-center gap-2 text-xs text-gray-600 hover:bg-gray-50 p-1 rounded cursor-default">
+                        {/* 색상 표시 원 */}
+                        <span 
+                          className="w-3 h-3 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: dataset.borderColor }}
+                        />
+                        {/* 부동산 이름 */}
+                        <span className="truncate" title={dataset.label}>
+                          {dataset.label}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             )}
+
+          </div>
+        </div>
           </div>
         </div>
 
