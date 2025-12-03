@@ -252,9 +252,10 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-gray-800">DMC 파크뷰자이 매물 현황 분석</h1>
         </div>
 
-        {/* 컨트롤러 */}
+       {/* 컨트롤러 */}
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-wrap gap-4 items-end z-10 relative">
           
+          {/* 1. 날짜 선택 */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <CalendarIcon className="w-3 h-3" /> 조회 기간
@@ -264,18 +265,21 @@ export default function Dashboard() {
                 type="date" 
                 value={startDate} 
                 onChange={(e) => setStartDate(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer"
+                // [수정] text-gray-900 추가
+                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               />
               <span className="text-gray-400">~</span>
               <input 
                 type="date" 
                 value={endDate} 
                 onChange={(e) => setEndDate(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer"
+                // [수정] text-gray-900 추가
+                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               />
             </div>
           </div>
 
+          {/* 2. 시간 선택 */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <Clock className="w-3 h-3" /> 시간대 (시)
@@ -284,7 +288,8 @@ export default function Dashboard() {
               <select 
                 value={startHour} 
                 onChange={(e) => setStartHour(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer"
+                // [수정] text-gray-900 추가
+                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               >
                 {HOURS.map(h => <option key={`start-${h}`} value={h}>{h}시</option>)}
               </select>
@@ -292,14 +297,15 @@ export default function Dashboard() {
               <select 
                 value={endHour} 
                 onChange={(e) => setEndHour(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer"
+                // [수정] text-gray-900 추가
+                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               >
                 {HOURS.map(h => <option key={`end-${h}`} value={h}>{h}시</option>)}
               </select>
             </div>
           </div>
 
-          {/* 부동산 다중 선택 */}
+          {/* 3. 부동산 선택 (다중) */}
           <div className="flex flex-col gap-1 min-w-[220px] relative" ref={dropdownRef}>
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <Building2 className="w-3 h-3" /> 부동산 선택 (다중)
@@ -307,10 +313,10 @@ export default function Dashboard() {
             
             <button 
               onClick={() => setIsAgentFilterOpen(!isAgentFilterOpen)}
-              className="w-full text-sm bg-gray-50 px-3 py-2 rounded-md border border-gray-200 flex justify-between items-center hover:border-blue-500 transition-colors"
+              // [수정] text-gray-900 추가 (선택된 항목 텍스트)
+              className="w-full text-sm bg-gray-50 px-3 py-2 rounded-md border border-gray-200 flex justify-between items-center hover:border-blue-500 transition-colors text-gray-900"
             >
               <span className="truncate">
-                {/* [수정] 로딩 중일 땐 텍스트 다르게 표시 */}
                 {agentOptions.length === 0 
                   ? "목록 불러오는 중..." 
                   : selectedAgents.length === agentOptions.length 
@@ -320,10 +326,11 @@ export default function Dashboard() {
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
 
+            {/* 드롭다운 메뉴 */}
             {isAgentFilterOpen && (
               <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-[300px]">
                 <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer font-bold text-gray-700 hover:text-blue-600">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer font-bold text-gray-900 hover:text-blue-600">
                     <input 
                       type="checkbox" 
                       checked={agentOptions.length > 0 && selectedAgents.length === agentOptions.length}
@@ -336,6 +343,7 @@ export default function Dashboard() {
                 
                 <div className="overflow-y-auto p-2 space-y-1 custom-scrollbar">
                   {agentOptions.map((agent) => (
+                    // [수정] text-gray-900 추가 (목록 내 개별 항목)
                     <label key={agent} className="flex items-center gap-2 text-sm text-gray-900 cursor-pointer hover:bg-blue-50 p-1 rounded transition-colors">
                       <input 
                         type="checkbox" 
@@ -363,7 +371,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 차트 영역 */}
+
         {/* 차트 영역 */}
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6 z-0 relative">
           <div className="w-full h-auto lg:h-[500px] flex flex-col lg:flex-row gap-6 lg:gap-4">
