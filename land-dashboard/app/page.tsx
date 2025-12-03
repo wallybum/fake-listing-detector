@@ -336,7 +336,7 @@ export default function Dashboard() {
                 
                 <div className="overflow-y-auto p-2 space-y-1 custom-scrollbar">
                   {agentOptions.map((agent) => (
-                    <label key={agent} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-blue-50 p-1 rounded transition-colors">
+                    <label key={agent} className="flex items-center gap-2 text-sm text-gray-900 cursor-pointer hover:bg-blue-50 p-1 rounded transition-colors">
                       <input 
                         type="checkbox" 
                         checked={selectedAgents.includes(agent)}
