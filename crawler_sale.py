@@ -60,33 +60,47 @@ def run_crawler():
         except: pass
 
         # ------------------------------------------------------------------
-        # 2. 필터 설정
+        # 2. 필터 설정 (매매 전용: 매매 ON / 나머지 OFF)
         # ------------------------------------------------------------------
-        print("⚙️ 필터 적용 중 (매매 모드)...")
+        print("⚙️ 필터 적용 중 (매매 모드 - 라벨 클릭 방식)...")
+        time.sleep(2)
+
+        # [Step 1] 매매(0번) 켜기 (가장 먼저!)
         try:
-            # [Step 1] 매매(0번)가 꺼져 있다면 -> 켠다 (가장 먼저!)
-            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
-            time.sleep(0.5)
+            sale_box = driver.find_element(By.ID, "complex_article_trad_type_filter_0")
+            if not sale_box.is_selected():
+                driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_0']").click()
+                time.sleep(1.0)
+        except Exception as e:
+            print(f"⚠️ 매매 버튼 설정 중 오류: {e}")
 
-            # [Step 2] 전세(1번)가 켜져 있다면 -> 끈다
-            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
-            time.sleep(0.5)
+            # [Step 2] 전세(1번) 끄기
+            try:
+                jeonse_box = driver.find_element(By.ID, "complex_article_trad_type_filter_1")
+                if jeonse_box.is_selected():
+                    driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_1']").click()
+                    time.sleep(0.5)
+            except: pass
 
-            # [Step 3] 월세(2번)가 켜져 있다면 -> 끈다
-            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_2:checked')) document.querySelector('#complex_article_trad_type_filter_2').click();")
-            time.sleep(0.5)
+            # [Step 3] 월세(2번) 끄기
+            try:
+                rent_box = driver.find_element(By.ID, "complex_article_trad_type_filter_2")
+                if rent_box.is_selected():
+                    driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_2']").click()
+                    time.sleep(0.5)
+            except: pass
 
-            # 동일매물 묶기 체크
-            group_input = driver.find_element(By.ID, "address_group2")
-            if not group_input.is_selected():
-                driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
-                time.sleep(1)
-            
-            # 낮은 가격순 정렬
-            driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
-            
-            print("   ⏳ 목록 갱신 대기 (5초)...")
-            time.sleep(5)
+            # ... (이후 동일매물 묶기 및 정렬 로직은 위와 동일) ...
+            try:
+                group_box = driver.find_element(By.ID, "address_group2")
+                if not group_box.is_selected():
+                    driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']").click()
+                    time.sleep(0.5)
+                driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
+            except: pass
+
+            print("   ⏳ 목록 갱신 대기 (3초)...")
+            time.sleep(3)
             # driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
             # time.sleep(0.5)
             # driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
