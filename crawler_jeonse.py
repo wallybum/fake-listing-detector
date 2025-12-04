@@ -62,22 +62,47 @@ def run_crawler():
         # ------------------------------------------------------------------
         # 2. 필터 설정
         # ------------------------------------------------------------------
-        print("⚙️ 필터 적용 중...")
+        print("⚙️ 필터 적용 중 (전세 모드)...")
         try:
+
+            # 1. 전세(1번)가 꺼져 있다면 -> 켠다 (가장 먼저 수행!)
+            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
+            time.sleep(1.0) # 클릭 후 충분히 대기
+
+            # 2. 매매(0번)가 켜져 있다면 -> 끈다
             driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
             time.sleep(0.5)
-            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
-            time.sleep(1)
+
+            # 3. (혹시 켜져 있다면) 월세(2번)도 끈다 -> 안전장치
+            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_2:checked')) document.querySelector('#complex_article_trad_type_filter_2').click();")
+            time.sleep(0.5)
             
+            # 동일매물 묶기 체크
             group_input = driver.find_element(By.ID, "address_group2")
             if not group_input.is_selected():
                 driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
                 time.sleep(1)
             
+            # 낮은 가격순 정렬
             driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
             
             print("   ⏳ 목록 갱신 대기 (5초)...")
             time.sleep(5)
+            
+            # driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
+            # time.sleep(0.5)
+            # driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
+            # time.sleep(1)
+            
+            # group_input = driver.find_element(By.ID, "address_group2")
+            # if not group_input.is_selected():
+            #     driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
+            #     time.sleep(1)
+            
+            # driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
+            
+            # print("   ⏳ 목록 갱신 대기 (5초)...")
+            # time.sleep(5)
 
         except Exception as e:
             print(f"⚠️ 필터 오류: {e}")
