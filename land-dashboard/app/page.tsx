@@ -13,18 +13,11 @@ import {
   Legend
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { LayoutDashboard, Calendar as CalendarIcon, Clock, Building2, Search, ExternalLink, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Calendar as CalendarIcon, Clock, Building2, Search, ExternalLink, ChevronDown, Repeat } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
-interface AgentStat {
-  id: number;
-  agent: string;
-  count: number;
-  crawl_time: string;
-  crawl_date: string;
-}
-
+// [수정] Log 인터페이스에 trade_type 추가 (DB 컬럼과 일치)
 interface RealEstateLog {
   id: number;
   agent: string;
@@ -32,6 +25,7 @@ interface RealEstateLog {
   spec: string;
   price: string;
   article_no: string;
+  trade_type: string; // 매매/전세
   crawl_time: string;
   crawl_date: string;
 }
@@ -54,6 +48,9 @@ export default function Dashboard() {
   const [startHour, setStartHour] = useState<string>('00');
   const [endHour, setEndHour] = useState<string>('23');
 
+  // [신규] 거래 유형 상태 (기본값: 매매)
+  const [tradeType, setTradeType] = useState<string>('매매');
+
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]); 
   const [agentOptions, setAgentOptions] = useState<string[]>([]);
   const [isAgentFilterOpen, setIsAgentFilterOpen] = useState<boolean>(false);
@@ -64,12 +61,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
-  // 1. 초기화: 날짜 설정 및 부동산 목록 가져오기
+  // 1. 초기화
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     setStartDate(today);
     setEndDate(today);
-    fetchAgentList();
+    
+    // 초기 로딩 시 '매매' 기준으로 부동산 목록 가져오기
+    fetchAgentList(today, '매매');
 
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -80,97 +79,112 @@ export default function Dashboard() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 2. 데이터 조회 트리거 수정 (핵심 수정!)
-  // [수정] selectedAgents가 채워지면(변경되면) 자동으로 fetchData 실행되도록 추가
+  // [수정] 거래 유형(tradeType)이 바뀌면 -> 해당 유형의 부동산 목록을 다시 불러와야 함
+  useEffect(() => {
+    if (startDate) {
+      fetchAgentList(startDate, tradeType);
+    }
+    // tradeType이 바뀌면 fetchData는 아래 의존성 배열에 의해 자동 호출됨
+  }, [tradeType]);
+
+  // 2. 데이터 조회 트리거
   useEffect(() => {
     if (startDate && endDate && selectedAgents.length > 0) {
       fetchData();
     }
-  }, [startDate, endDate, selectedAgents]); 
+  }, [startDate, endDate, selectedAgents, tradeType, startHour, endHour]); 
 
-  const fetchAgentList = async () => {
+  // [수정] 부동산 목록을 Logs 테이블에서 직접 가져옴 (agent_stats 사용 안 함)
+  const fetchAgentList = async (date: string, type: string) => {
+    // 해당 날짜/타입에 매물을 올린 부동산만 가져오기
     const { data } = await supabase
-      .from('agent_stats')
+      .from('real_estate_logs')
       .select('agent')
-      .order('agent', { ascending: true });
+      .eq('trade_type', type) // 매매면 매매 부동산, 전세면 전세 부동산
+      .gte('crawl_date', date) // 오늘 이후 (혹은 전체 기간으로 하고 싶으면 이 조건 제거)
+      .limit(2000); // 넉넉하게
 
     if (data) {
+      // 중복 제거 및 정렬
       const uniqueAgents = Array.from(new Set(data.map(item => item.agent))).sort();
       setAgentOptions(uniqueAgents);
-      setSelectedAgents(uniqueAgents); // 초기값: 전체 선택 (이게 실행되면 위 useEffect가 감지해서 데이터 조회함)
+      setSelectedAgents(uniqueAgents); // 기본값: 전체 선택
     }
   };
 
   const fetchData = async () => {
-    // 부동산 목록이 아직 로딩 안 됐으면 조회 스킵 (불필요한 에러 방지)
     if (selectedAgents.length === 0) return;
 
     setLoading(true);
 
-    let statsQuery = supabase
-      .from('agent_stats')
-      .select('*')
-      .order('crawl_date', { ascending: true })
-      .order('crawl_time', { ascending: true });
-
-    let logsQuery = supabase
+    // [핵심 변경] agent_stats 대신 real_estate_logs 원본을 조회
+    let query = supabase
       .from('real_estate_logs')
       .select('*')
-      .order('id', { ascending: false });
+      .eq('trade_type', tradeType) // 1. 거래 유형 필터 (매매/전세)
+      .order('crawl_date', { ascending: true })
+      .order('crawl_time', { ascending: true })
+      .limit(10000); // [중요] 1,000개 제한 돌파 (하루치 데이터를 다 가져오기 위함)
 
-    // A. 날짜
+    // A. 날짜 필터
     if (startDate === endDate) {
-      statsQuery = statsQuery.eq('crawl_date', startDate);
-      logsQuery = logsQuery.eq('crawl_date', startDate);
+      query = query.eq('crawl_date', startDate);
     } else {
-      statsQuery = statsQuery.gte('crawl_date', startDate).lte('crawl_date', endDate);
-      logsQuery = logsQuery.gte('crawl_date', startDate).lte('crawl_date', endDate);
+      query = query.gte('crawl_date', startDate).lte('crawl_date', endDate);
     }
 
-    // B. 시간
-    const startTimeFull = `${startHour}:00`;
-    const endTimeFull = `${endHour}:59`;
+    // B. 시간 필터 (DB 포맷 '11시'에 맞춤)
+    // startHour가 '09'라면 -> '09시'로 변환
+    const startTimeFull = `${startHour}시`;
+    const endTimeFull = `${endHour}시`;
+    
+    query = query.gte('crawl_time', startTimeFull).lte('crawl_time', endTimeFull);
 
-    statsQuery = statsQuery.gte('crawl_time', startTimeFull).lte('crawl_time', endTimeFull);
-    logsQuery = logsQuery.gte('crawl_time', startTimeFull).lte('crawl_time', endTimeFull);
-
-    // C. 부동산 (전체 선택이 아닐 때만 필터링)
+    // C. 부동산 필터
     if (selectedAgents.length < agentOptions.length) {
-      statsQuery = statsQuery.in('agent', selectedAgents);
-      logsQuery = logsQuery.in('agent', selectedAgents);
+      query = query.in('agent', selectedAgents);
     }
 
-    const { data: statsData } = await statsQuery;
-    const { data: logsData } = await logsQuery;
+    const { data } = await query;
+    const resultData = (data as RealEstateLog[]) || [];
 
-    processData((statsData as AgentStat[]) || []);
-    setLogs((logsData as RealEstateLog[]) || []);
+    // 받아온 로그 데이터를 가공하여 차트 데이터 생성
+    processDataFromLogs(resultData);
+    
+    // 리스트 표시는 최신순(역순)
+    setLogs([...resultData].sort((a, b) => b.id - a.id));
+    
     setLastUpdated(new Date().toLocaleString());
     setLoading(false);
   };
 
-  const processData = (data: AgentStat[]) => {
+  // [신규 로직] 로그 데이터를 직접 카운팅하여 차트 그리기
+  const processDataFromLogs = (logs: RealEstateLog[]) => {
     const isSingleDay = startDate === endDate;
-    const uniqueTimePoints = Array.from(new Set(data.map(d => {
-      const timeStr = d.crawl_time.substring(0, 5); 
+    
+    // 1. X축 라벨(시간) 추출 (중복 제거)
+    const uniqueTimePoints = Array.from(new Set(logs.map(d => {
+      const timeStr = d.crawl_time.substring(0, 5); // "11시" -> "11시" (그대로 씀)
       return isSingleDay ? timeStr : `${d.crawl_date.slice(5)} ${timeStr}`;
     }))).sort();
 
-    // 선택된 부동산 목록 기준으로 데이터셋 생성
-    // (selectedAgents 순서나 필터링을 따르는 게 좋으므로 여기서는 데이터에 있는 것만 추림)
-    const activeAgents = Array.from(new Set(data.map(d => d.agent))).sort();
-
-    const datasets = activeAgents.map((agent, index) => {
+    // 2. 선택된 부동산별 데이터셋 생성
+    const datasets = selectedAgents.map((agent, index) => {
       const color = COLORS[index % COLORS.length];
-      const agentData = data.filter(d => d.agent === agent);
+      
+      // 현재 부동산의 로그만 필터링
+      const agentLogs = logs.filter(d => d.agent === agent);
       
       const dataPoints = uniqueTimePoints.map(label => {
-        const found = agentData.find(d => {
+        // 해당 시간대(label)에 이 부동산 매물이 몇 개였는지 카운트
+        const count = agentLogs.filter(d => {
           const timeStr = d.crawl_time.substring(0, 5);
           const currentLabel = isSingleDay ? timeStr : `${d.crawl_date.slice(5)} ${timeStr}`;
           return currentLabel === label;
-        });
-        return found ? found.count : null;
+        }).length;
+        
+        // 데이터가 있으면 개수 반환, 없으면 null (그래프 연결을 원하면 0으로 변경 가능)
+        return count > 0 ? count : null; 
       });
 
       return {
@@ -178,10 +192,10 @@ export default function Dashboard() {
         data: dataPoints,
         borderColor: color,
         backgroundColor: color,
-        tension: 0.3,
-        pointRadius: 4,
+        tension: 0.3,       // 곡선
+        pointRadius: 4,     // 점 크기
         pointHoverRadius: 9,
-        spanGaps: true,
+        spanGaps: true,     // null 값이 있어도 선 연결
       };
     });
 
@@ -216,9 +230,7 @@ export default function Dashboard() {
       intersect: true 
     },
     plugins: {
-      legend: {
-        display: false,
-      },
+      legend: { display: false },
       tooltip: {
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         titleColor: '#111',
@@ -236,7 +248,7 @@ export default function Dashboard() {
     },
     scales: {
       y: {
-        beginAtZero: false,
+        beginAtZero: true, // 0부터 시작
         ticks: { stepSize: 1, precision: 0 }
       },
       x: { grid: { display: false } }
@@ -252,10 +264,28 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-gray-800">DMC 파크뷰자이 매물 현황 분석</h1>
         </div>
 
-       {/* 컨트롤러 */}
+       {/* 컨트롤러 패널 */}
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-wrap gap-4 items-end z-10 relative">
           
-          {/* 1. 날짜 선택 */}
+          {/* [1] 거래 유형 선택 (매매/전세) */}
+          <div className="flex flex-col gap-1">
+             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
+              <Repeat className="w-3 h-3" /> 거래 유형
+            </label>
+            <div className="relative">
+                <select
+                    value={tradeType}
+                    onChange={(e) => setTradeType(e.target.value)}
+                    className="appearance-none w-24 bg-blue-50 text-blue-700 font-bold px-3 py-2 rounded-md border border-blue-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                    <option value="매매">매매</option>
+                    <option value="전세">전세</option>
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* [2] 날짜 선택 */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <CalendarIcon className="w-3 h-3" /> 조회 기간
@@ -265,7 +295,6 @@ export default function Dashboard() {
                 type="date" 
                 value={startDate} 
                 onChange={(e) => setStartDate(e.target.value)}
-                // [수정] text-gray-900 추가
                 className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               />
               <span className="text-gray-400">~</span>
@@ -273,13 +302,12 @@ export default function Dashboard() {
                 type="date" 
                 value={endDate} 
                 onChange={(e) => setEndDate(e.target.value)}
-                // [수정] text-gray-900 추가
                 className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               />
             </div>
           </div>
 
-          {/* 2. 시간 선택 */}
+          {/* [3] 시간 선택 */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <Clock className="w-3 h-3" /> 시간대 (시)
@@ -288,7 +316,6 @@ export default function Dashboard() {
               <select 
                 value={startHour} 
                 onChange={(e) => setStartHour(e.target.value)}
-                // [수정] text-gray-900 추가
                 className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               >
                 {HOURS.map(h => <option key={`start-${h}`} value={h}>{h}시</option>)}
@@ -297,7 +324,6 @@ export default function Dashboard() {
               <select 
                 value={endHour} 
                 onChange={(e) => setEndHour(e.target.value)}
-                // [수정] text-gray-900 추가
                 className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
               >
                 {HOURS.map(h => <option key={`end-${h}`} value={h}>{h}시</option>)}
@@ -305,7 +331,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* 3. 부동산 선택 (다중) */}
+          {/* [4] 부동산 선택 (다중) */}
           <div className="flex flex-col gap-1 min-w-[220px] relative" ref={dropdownRef}>
             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
               <Building2 className="w-3 h-3" /> 부동산 선택 (다중)
@@ -313,12 +339,11 @@ export default function Dashboard() {
             
             <button 
               onClick={() => setIsAgentFilterOpen(!isAgentFilterOpen)}
-              // [수정] text-gray-900 추가 (선택된 항목 텍스트)
               className="w-full text-sm bg-gray-50 px-3 py-2 rounded-md border border-gray-200 flex justify-between items-center hover:border-blue-500 transition-colors text-gray-900"
             >
               <span className="truncate">
                 {agentOptions.length === 0 
-                  ? "목록 불러오는 중..." 
+                  ? "데이터 없음" 
                   : selectedAgents.length === agentOptions.length 
                     ? "전체 부동산 선택됨" 
                     : `${selectedAgents.length}개 부동산 선택됨`}
@@ -343,7 +368,6 @@ export default function Dashboard() {
                 
                 <div className="overflow-y-auto p-2 space-y-1 custom-scrollbar">
                   {agentOptions.map((agent) => (
-                    // [수정] text-gray-900 추가 (목록 내 개별 항목)
                     <label key={agent} className="flex items-center gap-2 text-sm text-gray-900 cursor-pointer hover:bg-blue-50 p-1 rounded transition-colors">
                       <input 
                         type="checkbox" 
@@ -376,10 +400,8 @@ export default function Dashboard() {
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6 z-0 relative">
           <div className="w-full h-auto lg:h-[500px] flex flex-col lg:flex-row gap-6 lg:gap-4">
             
-            {/* 1. 차트 및 상태 메시지 표시 영역 */}
             <div className="flex-1 h-[300px] lg:h-full min-h-[300px] flex items-center justify-center">
               
-              {/* Case 1: 선택된 부동산이 0개일 때 */}
               {selectedAgents.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 text-gray-400">
                   <div className="p-4 bg-gray-50 rounded-full">
@@ -391,20 +413,17 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-              /* Case 2: 데이터 로딩 중일 때 */
               ) : loading ? (
                 <div className="flex flex-col items-center gap-3 text-gray-400">
                   <div className="w-8 h-8 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
                   <p className="text-sm">데이터 불러오는 중...</p>
                 </div>
 
-              /* Case 3: 데이터가 존재할 때 (차트 렌더링) */
               ) : chartData && chartData.labels && chartData.labels.length > 0 ? (
                 <div className="w-full h-full">
                   <Line options={options} data={chartData} />
                 </div>
 
-              /* Case 4: 선택은 했으나 DB에 데이터가 없을 때 */
               ) : (
                 <div className="flex flex-col items-center gap-3 text-gray-400">
                   <div className="p-4 bg-gray-50 rounded-full">
@@ -412,13 +431,13 @@ export default function Dashboard() {
                   </div>
                   <div className="text-center">
                     <p className="font-medium">수집된 정보가 없습니다.</p>
-                    <p className="text-xs mt-1 text-gray-300">조회 기간을 변경하거나 크롤링 상태를 확인해주세요.</p>
+                    <p className="text-xs mt-1 text-gray-300">해당 조건의 매물 데이터가 없습니다.</p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* 2. 범례(목록) 영역 - 데이터가 있을 때만 표시 */}
+            {/* 범례 */}
             {!loading && selectedAgents.length > 0 && chartData && chartData.labels.length > 0 && (
               <div className="w-full lg:w-[280px] h-[250px] lg:h-full border-t lg:border-t-0 lg:border-l border-gray-100 pt-4 lg:pt-0 lg:pl-4 flex flex-col">
                 <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider flex justify-between items-center">
@@ -438,7 +457,7 @@ export default function Dashboard() {
                           {dataset.label}
                         </span>
                         <span className="ml-auto font-mono text-gray-400 text-[10px]">
-                           {dataset.data[dataset.data.length - 1] ?? '-'}건
+                           {dataset.data.filter((v:any) => v !== null).slice(-1)[0] ?? '-'}건
                         </span>
                       </li>
                     ))}
@@ -450,10 +469,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 하단 리스트 */}
+        {/* 하단 상세 리스트 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-gray-800">상세 수집 내역</h2>
+            <h2 className="text-lg font-bold text-gray-800">
+                상세 수집 내역 <span className="text-blue-600">({tradeType})</span>
+            </h2>
             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">총 {logs.length}건</span>
           </div>
           <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
