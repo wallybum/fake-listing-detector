@@ -69,7 +69,7 @@ export default function Dashboard() {
     
     // 초기 로딩 시 '매매' 기준으로 부동산 목록 가져오기
     fetchAgentList(today, '매매');
-
+    fetchLastCrawlTime();
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsAgentFilterOpen(false);
@@ -79,6 +79,23 @@ export default function Dashboard() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const fetchLastCrawlTime = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('real_estate_logs')
+        .select('crawl_date, crawl_time')
+        .order('id', { ascending: false }) // 가장 최근에 저장된 것(ID 역순)
+        .limit(1)
+        .single();
+
+      if (data) {
+        // 보기 좋게 포맷팅 (예: 2025-12-04 14시)
+        setLastUpdated(`${data.crawl_date} ${data.crawl_time}`);
+      }
+    } catch (e) {
+      console.error("최신 업데이트 시간 조회 실패", e);
+    }
+  };
   // [수정] 거래 유형(tradeType)이 바뀌면 -> 해당 유형의 부동산 목록을 다시 불러와야 함
   useEffect(() => {
     if (startDate) {
@@ -154,7 +171,7 @@ export default function Dashboard() {
     // 리스트 표시는 최신순(역순)
     setLogs([...resultData].sort((a, b) => b.id - a.id));
     
-    setLastUpdated(new Date().toLocaleString());
+    // setLastUpdated(new Date().toLocaleString());
     setLoading(false);
   };
 
