@@ -59,78 +59,30 @@ def run_crawler():
         try: WebDriverWait(driver, 40).until(EC.presence_of_element_located((By.ID, "complex_article_trad_type_filter_0")))
         except: pass
 
-       # ------------------------------------------------------------------
-        # 2. 필터 설정 (전세 전용: 전세 ON / 나머지 OFF)
         # ------------------------------------------------------------------
-        print("⚙️ 필터 적용 중 (전세 모드 - 라벨 클릭 방식)...")
-        time.sleep(2) # 페이지 로딩 대기
-
-        # [Step 1] 전세(1번) 켜기 (가장 먼저!)
-        try:
-            # 체크박스(input) 상태 확인
-            jeonse_box = driver.find_element(By.ID, "complex_article_trad_type_filter_1")
-            # 꺼져 있다면 -> 라벨을 클릭 (input을 직접 클릭하면 안 먹힐 때가 있음)
-            if not jeonse_box.is_selected():
-                driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_1']").click()
-                time.sleep(1.0) # UI 반응 대기
-        except Exception as e:
-            print(f"⚠️ 전세 버튼 설정 중 오류: {e}")
-
-        # [Step 2] 매매(0번) 끄기
-        try:
-            sale_box = driver.find_element(By.ID, "complex_article_trad_type_filter_0")
-            if sale_box.is_selected():
-                driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_0']").click()
-                time.sleep(0.5)
-        except: pass
-
-        # [Step 3] 월세(2번) 끄기
-        try:
-            rent_box = driver.find_element(By.ID, "complex_article_trad_type_filter_2")
-            if rent_box.is_selected():
-                driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_2']").click()
-                time.sleep(0.5)
-        except: pass
-
-        # [Step 4] 단기임대(3번) 끄기
-        try:
-            short_box = driver.find_element(By.ID, "complex_article_trad_type_filter_3")
-            if short_box.is_selected():
-                driver.find_element(By.CSS_SELECTOR, "label[for='complex_article_trad_type_filter_3']").click()
-                time.sleep(0.5)
-        except: pass
-
+        # 2. 필터 설정
         # ------------------------------------------------------------------
-        # [공통] 동일매물 묶기 & 가격순 정렬
-        # ------------------------------------------------------------------
+        print("⚙️ 전세 매물 필터 적용 중...")
         try:
-            # 동일매물 묶기 (보통 기본 체크되어 있으나 확인)
-            group_box = driver.find_element(By.ID, "address_group2")
-            if not group_box.is_selected():
-                driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']").click()
-                time.sleep(0.5)
+          # [Step 1] 전세(filter_2) 켜기 (가장 먼저!)
+            # 전세 체크박스가 체크 안 되어 있다면 -> 클릭해서 켠다
+            driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_2:checked')) document.querySelector('label[for=\"complex_article_trad_type_filter_2\"]').click();")
+            time.sleep(1.0) # 반응 대기
+
+            # [Step 2] 매매(filter_1) 끄기
+            # 매매 체크박스가 체크 되어 있다면 -> 클릭해서 끈다
+            driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('label[for=\"complex_article_trad_type_filter_1\"]').click();")
+            time.sleep(0.5)
             
-            # 가격순 정렬 클릭
+            group_input = driver.find_element(By.ID, "address_group2")
+            if not group_input.is_selected():
+                driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
+                time.sleep(1)
+            
             driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
-        except: pass
-
-        print("   ⏳ 목록 갱신 대기 (3초)...")
-        time.sleep(3)
-
-            # driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) document.querySelector('#complex_article_trad_type_filter_0').click();")
-            # time.sleep(0.5)
-            # driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) document.querySelector('#complex_article_trad_type_filter_1').click();")
-            # time.sleep(1)
             
-            # group_input = driver.find_element(By.ID, "address_group2")
-            # if not group_input.is_selected():
-            #     driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
-            #     time.sleep(1)
-            
-            # driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
-            
-            # print("   ⏳ 목록 갱신 대기 (5초)...")
-            # time.sleep(5)
+            print("   ⏳ 목록 갱신 대기 (5초)...")
+            time.sleep(5)
 
         except Exception as e:
             print(f"⚠️ 필터 오류: {e}")
@@ -261,8 +213,7 @@ def run_crawler():
                     
                     db_data.append({
                         "agent": agent, "dong": dong, "spec": spec, "price": price,
-                        "trade_type" : "전세", "article_no": article_no, "crawl_date": TODAY_STR, 
-                        "crawl_time": f"{HOUR_STR}시"
+                        "article_no": article_no,  "trade_type" : "전세","crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                     })
 
 
