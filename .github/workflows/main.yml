@@ -38,7 +38,7 @@ jobs:
       #  run : |
        #   python crawler_sale.py
         #  python crawler_jeonse.py
-          run : python crawler_jeonse.py 
+          run: python crawler_jeonse.py 
       # ▼▼▼ [추가됨] 실패하든 성공하든 스크린샷 업로드 ▼▼▼
       - name: 디버깅 파일 업로드 (스크린샷)
         if: always() 
