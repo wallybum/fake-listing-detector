@@ -13,11 +13,11 @@ import {
   Legend
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { LayoutDashboard, Calendar as CalendarIcon, Clock, Building2, Search, ExternalLink, ChevronDown, Repeat } from 'lucide-react';
+import { LayoutDashboard, Calendar as CalendarIcon, Clock, Building2, Search, ExternalLink, ChevronDown, Repeat, MapPin } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
-// [수정] Log 인터페이스에 trade_type 추가 (DB 컬럼과 일치)
+// --- [타입 정의] ---
 interface RealEstateLog {
   id: number;
   agent: string;
@@ -25,9 +25,17 @@ interface RealEstateLog {
   spec: string;
   price: string;
   article_no: string;
-  trade_type: string; // 매매/전세
+  trade_type: string;
   crawl_time: string;
   crawl_date: string;
+}
+
+interface StatData {
+  agent?: string;
+  dong?: string;
+  day_str: string;
+  time_str: string;
+  count: number;
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -36,172 +44,232 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const COLORS = [
   "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", 
-  "#0891b2", "#db2777", "#ca8a04", "#4b5563", "#0d9488"
+  "#0891b2", "#db2777", "#ca8a04", "#4b5563", "#0d9488",
+  "#7c3aed", "#be185d", "#15803d", "#b45309", "#0369a1"
 ];
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
 
 export default function Dashboard() {
+  // --- [필터 상태] ---
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  
   const [startHour, setStartHour] = useState<string>('00');
   const [endHour, setEndHour] = useState<string>('23');
-
-  // [신규] 거래 유형 상태 (기본값: 매매)
   const [tradeType, setTradeType] = useState<string>('매매');
 
-  const [selectedAgents, setSelectedAgents] = useState<string[]>([]); 
-  const [agentOptions, setAgentOptions] = useState<string[]>([]);
-  const [isAgentFilterOpen, setIsAgentFilterOpen] = useState<boolean>(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const [chartData, setChartData] = useState<any>(null);
+  // --- [데이터 상태] ---
   const [logs, setLogs] = useState<RealEstateLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<string>("");
+
+  // --- [Chart States] ---
+  const [agentOptions, setAgentOptions] = useState<string[]>([]);
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
+  const [agentChartData, setAgentChartData] = useState<any>(null);
+  const [isAgentFilterOpen, setIsAgentFilterOpen] = useState(false);
+  const [rawAgentStats, setRawAgentStats] = useState<StatData[]>([]);
+
+  const [dongOptions, setDongOptions] = useState<string[]>([]);
+  const [selectedDongs, setSelectedDongs] = useState<string[]>([]);
+  const [dongChartData, setDongChartData] = useState<any>(null);
+  const [isDongFilterOpen, setIsDongFilterOpen] = useState(false);
+  const [rawDongStats, setRawDongStats] = useState<StatData[]>([]);
+
+  const agentDropdownRef = useRef<HTMLDivElement>(null);
+  const dongDropdownRef = useRef<HTMLDivElement>(null);
 
   // 1. 초기화
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     setStartDate(today);
     setEndDate(today);
-    
-    // 초기 로딩 시 '매매' 기준으로 부동산 목록 가져오기
-    fetchAgentList(today, '매매');
     fetchLastCrawlTime();
+
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsAgentFilterOpen(false);
-      }
+      if (agentDropdownRef.current && !agentDropdownRef.current.contains(event.target as Node)) setIsAgentFilterOpen(false);
+      if (dongDropdownRef.current && !dongDropdownRef.current.contains(event.target as Node)) setIsDongFilterOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // 2. 데이터 조회
+  useEffect(() => {
+    if (startDate && endDate) {
+      fetchAllData();
+    }
+  }, [startDate, endDate, tradeType, startHour, endHour]);
+
+  // 3. 차트 리렌더링
+  useEffect(() => {
+    if (rawAgentStats.length > 0) updateAgentChart(rawAgentStats);
+  }, [selectedAgents, rawAgentStats, startHour, endHour]);
+
+  useEffect(() => {
+    if (rawDongStats.length > 0) updateDongChart(rawDongStats);
+  }, [selectedDongs, rawDongStats, startHour, endHour]);
+
+
+  // --- [Fetching Logic] ---
   const fetchLastCrawlTime = async () => {
     try {
-      const { data, error } = await supabase
-        .from('real_estate_logs')
-        .select('crawl_date, crawl_time')
-        .order('id', { ascending: false }) // 가장 최근에 저장된 것(ID 역순)
-        .limit(1)
-        .single();
-
-      if (data) {
-        // 보기 좋게 포맷팅 (예: 2025-12-04 14시)
-        setLastUpdated(`${data.crawl_date} ${data.crawl_time}`);
-      }
-    } catch (e) {
-      console.error("최신 업데이트 시간 조회 실패", e);
-    }
-  };
-  // [수정] 거래 유형(tradeType)이 바뀌면 -> 해당 유형의 부동산 목록을 다시 불러와야 함
-  useEffect(() => {
-    if (startDate) {
-      fetchAgentList(startDate, tradeType);
-    }
-    // tradeType이 바뀌면 fetchData는 아래 의존성 배열에 의해 자동 호출됨
-  }, [tradeType]);
-
-  // 2. 데이터 조회 트리거
-  useEffect(() => {
-    if (startDate && endDate && selectedAgents.length > 0) {
-      fetchData();
-    }
-  }, [startDate, endDate, selectedAgents, tradeType, startHour, endHour]); 
-
-  // [수정] 부동산 목록을 Logs 테이블에서 직접 가져옴 (agent_stats 사용 안 함)
-  const fetchAgentList = async (date: string, type: string) => {
-    // 해당 날짜/타입에 매물을 올린 부동산만 가져오기
-    const { data } = await supabase
-      .from('real_estate_logs')
-      .select('agent')
-      .eq('trade_type', type) // 매매면 매매 부동산, 전세면 전세 부동산
-      .gte('crawl_date', date) // 오늘 이후 (혹은 전체 기간으로 하고 싶으면 이 조건 제거)
-      .limit(2000); // 넉넉하게
-
-    if (data) {
-      // 중복 제거 및 정렬
-      const uniqueAgents = Array.from(new Set(data.map(item => item.agent))).sort();
-      setAgentOptions(uniqueAgents);
-      setSelectedAgents(uniqueAgents); // 기본값: 전체 선택
-    }
+      const { data } = await supabase.from('real_estate_logs').select('crawl_date, crawl_time').order('id', { ascending: false }).limit(1).single();
+      if (data) setLastUpdated(`${data.crawl_date} ${data.crawl_time}`);
+    } catch (e) { console.error(e); }
   };
 
-  const fetchData = async () => {
-    if (selectedAgents.length === 0) return;
-
+  const fetchAllData = async () => {
     setLoading(true);
+    try {
+      const { data: agentStats, error: agentError } = await supabase
+        .rpc('get_agent_stats', { start_d: startDate, end_d: endDate, trade_t: tradeType });
+      if (agentError) console.error("Agent RPC Error:", agentError);
 
-    // [핵심 변경] agent_stats 대신 real_estate_logs 원본을 조회
-    let query = supabase
-      .from('real_estate_logs')
-      .select('*')
-      .eq('trade_type', tradeType) // 1. 거래 유형 필터 (매매/전세)
-      .order('crawl_date', { ascending: true })
-      .order('crawl_time', { ascending: true })
-      .limit(10000); // [중요] 1,000개 제한 돌파 (하루치 데이터를 다 가져오기 위함)
+      const { data: dongStats, error: dongError } = await supabase
+        .rpc('get_dong_stats', { start_d: startDate, end_d: endDate, trade_t: tradeType });
+      // if (dongError) console.error("Dong RPC Error:", dongError);
 
-    // A. 날짜 필터
-    if (startDate === endDate) {
-      query = query.eq('crawl_date', startDate);
-    } else {
-      query = query.gte('crawl_date', startDate).lte('crawl_date', endDate);
+      let listQuery = supabase
+        .from('real_estate_logs')
+        .select('*')
+        .eq('trade_type', tradeType)
+        .gte('crawl_date', startDate)
+        .lte('crawl_date', endDate)
+        .order('id', { ascending: false })
+        .limit(200);
+      
+      const { data: listData } = await listQuery;
+
+      if (agentStats) {
+        setRawAgentStats(agentStats);
+        const agents = Array.from(new Set(agentStats.map((d: any) => d.agent))).sort() as string[];
+        if (JSON.stringify(agents) !== JSON.stringify(agentOptions)) {
+           setAgentOptions(agents);
+           setSelectedAgents(agents); 
+        }
+        updateAgentChart(agentStats);
+      }
+
+      if (dongStats) {
+        setRawDongStats(dongStats);
+        const dongs = Array.from(new Set(dongStats.map((d: any) => d.dong))).sort() as string[];
+        if (JSON.stringify(dongs) !== JSON.stringify(dongOptions)) {
+            setDongOptions(dongs);
+            setSelectedDongs(dongs);
+        }
+        updateDongChart(dongStats);
+      }
+
+      if (listData) {
+        setLogs(listData as RealEstateLog[]);
+      }
+
+    } catch (error) {
+      console.error("Fetch Error:", error);
+    } finally {
+      setLoading(false);
     }
-
-    // B. 시간 필터 (DB 포맷 '11시'에 맞춤)
-    // startHour가 '09'라면 -> '09시'로 변환
-    const startTimeFull = `${startHour}시`;
-    const endTimeFull = `${endHour}시`;
-    
-    query = query.gte('crawl_time', startTimeFull).lte('crawl_time', endTimeFull);
-
-    // C. 부동산 필터
-    if (selectedAgents.length < agentOptions.length) {
-      query = query.in('agent', selectedAgents);
-    }
-
-    const { data } = await query;
-    const resultData = (data as RealEstateLog[]) || [];
-
-    // 받아온 로그 데이터를 가공하여 차트 데이터 생성
-    processDataFromLogs(resultData);
-    
-    // 리스트 표시는 최신순(역순)
-    setLogs([...resultData].sort((a, b) => b.id - a.id));
-    
-    // setLastUpdated(new Date().toLocaleString());
-    setLoading(false);
   };
 
-  // [신규 로직] 로그 데이터를 직접 카운팅하여 차트 그리기
-  const processDataFromLogs = (logs: RealEstateLog[]) => {
+  // --- [차트 라벨 생성 로직 (Start & End Trimming)] ---
+
+  // 1. 가장 빠른 시간 찾기 (Start용)
+  const findEarliestHour = (stats: StatData[]) => {
+    if (!stats || stats.length === 0) return parseInt(startHour, 10);
+    const hours = stats.map(s => {
+      let hStr = s.time_str;
+      if (hStr.includes('시')) hStr = hStr.replace('시', '');
+      return parseInt(hStr, 10);
+    }).filter(n => !isNaN(n));
+    if (hours.length === 0) return parseInt(startHour, 10);
+    return Math.min(...hours);
+  };
+
+  // 2. 가장 늦은 시간 찾기 (End용) - [새로 추가됨]
+  const findLatestHour = (stats: StatData[]) => {
+    if (!stats || stats.length === 0) return parseInt(endHour, 10);
+    const hours = stats.map(s => {
+      let hStr = s.time_str;
+      if (hStr.includes('시')) hStr = hStr.replace('시', '');
+      return parseInt(hStr, 10);
+    }).filter(n => !isNaN(n));
+    if (hours.length === 0) return parseInt(endHour, 10);
+    return Math.max(...hours); // 최대값 반환
+  };
+
+  const getMultiDayLabels = (stats: StatData[]) => {
+     const set = new Set(stats.map(s => {
+         let timeStr = s.time_str;
+         if (timeStr.includes('시')) {
+             const hour = parseInt(timeStr.replace('시', ''), 10);
+             timeStr = `${String(hour).padStart(2, '0')}:00`;
+         }
+         return `${s.day_str.slice(5)} ${timeStr}`;
+     }));
+     return Array.from(set).sort();
+  };
+
+  // [핵심] 스마트 라벨 생성기 (양쪽 자르기 적용)
+  const generateSmartLabels = (stats: StatData[]) => {
+    const labels: string[] = [];
     const isSingleDay = startDate === endDate;
     
-    // 1. X축 라벨(시간) 추출 (중복 제거)
-    const uniqueTimePoints = Array.from(new Set(logs.map(d => {
-      const timeStr = d.crawl_time.substring(0, 5); // "11시" -> "11시" (그대로 씀)
-      return isSingleDay ? timeStr : `${d.crawl_date.slice(5)} ${timeStr}`;
-    }))).sort();
+    // 기본: 사용자가 선택한 범위
+    let start = parseInt(startHour, 10);
+    let end = parseInt(endHour, 10);
 
-    // 2. 선택된 부동산별 데이터셋 생성
+    // 데이터가 있을 때만 조정
+    if (stats.length > 0) {
+        // 1. Start 조정 (00시 선택했는데 데이터가 늦게 시작하면 당김)
+        if (start === 0) {
+            const earliest = findEarliestHour(stats);
+            if (earliest > start) start = earliest;
+        }
+
+        // 2. End 조정 (23시 선택했는데 데이터가 일찍 끝나면 자름) - [새로 추가됨]
+        // (단, 사용자가 23시를 선택했을 때만 적용. 사용자가 일부러 15시까지만 보고 싶어하면 건드리지 않음)
+        // 만약 사용자가 선택한 'end'보다 실제 데이터 'latest'가 더 작으면, 'latest'로 맞춤
+        const latest = findLatestHour(stats);
+        if (latest < end) {
+            end = latest;
+        }
+    }
+
+    if (isSingleDay) {
+        for (let i = start; i <= end; i++) {
+            labels.push(`${String(i).padStart(2, '0')}:00`);
+        }
+    } else {
+        return getMultiDayLabels(stats); 
+    }
+    return labels;
+  };
+
+  // --- [차트 업데이트] ---
+
+  const updateAgentChart = (stats: StatData[]) => {
+    const isSingleDay = startDate === endDate;
+    let labels = isSingleDay ? generateSmartLabels(stats) : getMultiDayLabels(stats);
+    if (!isSingleDay && labels.length === 0) labels = [];
+
     const datasets = selectedAgents.map((agent, index) => {
       const color = COLORS[index % COLORS.length];
+      const targetStats = stats.filter(s => s.agent === agent);
       
-      // 현재 부동산의 로그만 필터링
-      const agentLogs = logs.filter(d => d.agent === agent);
-      
-      const dataPoints = uniqueTimePoints.map(label => {
-        // 해당 시간대(label)에 이 부동산 매물이 몇 개였는지 카운트
-        const count = agentLogs.filter(d => {
-          const timeStr = d.crawl_time.substring(0, 5);
-          const currentLabel = isSingleDay ? timeStr : `${d.crawl_date.slice(5)} ${timeStr}`;
-          return currentLabel === label;
-        }).length;
-        
-        // 데이터가 있으면 개수 반환, 없으면 null (그래프 연결을 원하면 0으로 변경 가능)
-        return count > 0 ? count : null; 
+      const countMap: Record<string, number> = {};
+      targetStats.forEach(s => {
+        let timeKey = s.time_str;
+        if (timeKey.includes('시')) {
+            const hour = parseInt(timeKey.replace('시', ''), 10);
+            timeKey = `${String(hour).padStart(2, '0')}:00`;
+        }
+        const key = isSingleDay ? timeKey : `${s.day_str.slice(5)} ${timeKey}`;
+        countMap[key] = s.count;
+      });
+
+      const dataPoints = labels.map(label => {
+        return countMap[label] || null;
       });
 
       return {
@@ -209,42 +277,96 @@ export default function Dashboard() {
         data: dataPoints,
         borderColor: color,
         backgroundColor: color,
-        tension: 0.3,       // 곡선
-        pointRadius: 4,     // 점 크기
-        pointHoverRadius: 9,
-        spanGaps: true,     // null 값이 있어도 선 연결
+        tension: 0.3,
+        pointRadius: 3,
+        spanGaps: true,
       };
     });
+    setAgentChartData({ labels, datasets });
+  };
 
-    setChartData({
-      labels: uniqueTimePoints,
-      datasets
+  const updateDongChart = (stats: StatData[]) => {
+    const isSingleDay = startDate === endDate;
+    let labels = isSingleDay ? generateSmartLabels(stats) : getMultiDayLabels(stats);
+
+    const datasets = selectedDongs.map((dong, index) => {
+      const color = COLORS[(index + 5) % COLORS.length];
+      const targetStats = stats.filter(s => s.dong === dong);
+      
+      const countMap: Record<string, number> = {};
+      targetStats.forEach(s => {
+        let timeKey = s.time_str;
+        if (timeKey.includes('시')) {
+            const hour = parseInt(timeKey.replace('시', ''), 10);
+            timeKey = `${String(hour).padStart(2, '0')}:00`;
+        }
+        const key = isSingleDay ? timeKey : `${s.day_str.slice(5)} ${timeKey}`;
+        countMap[key] = s.count;
+      });
+
+      const dataPoints = labels.map(label => {
+        return countMap[label] || null;
+      });
+
+      return {
+        label: dong,
+        data: dataPoints,
+        borderColor: color,
+        backgroundColor: color,
+        tension: 0.3,
+        pointRadius: 3,
+        spanGaps: true,
+      };
     });
+    setDongChartData({ labels, datasets });
   };
 
-  const handleAgentToggle = (agent: string) => {
-    if (selectedAgents.includes(agent)) {
-      setSelectedAgents(selectedAgents.filter(a => a !== agent));
-    } else {
-      setSelectedAgents([...selectedAgents, agent]);
-    }
+  // --- [이벤트 핸들러] ---
+  const toggleAgent = (agent: string) => {
+    if (selectedAgents.includes(agent)) setSelectedAgents(selectedAgents.filter(a => a !== agent));
+    else setSelectedAgents([...selectedAgents, agent]);
   };
+  const selectAllAgents = () => setSelectedAgents(selectedAgents.length === agentOptions.length ? [] : [...agentOptions]);
 
-  const handleSelectAll = () => {
-    if (selectedAgents.length === agentOptions.length) {
-      setSelectedAgents([]);
-    } else {
-      setSelectedAgents([...agentOptions]);
-    }
+  const toggleDong = (dong: string) => {
+    if (selectedDongs.includes(dong)) setSelectedDongs(selectedDongs.filter(d => d !== dong));
+    else setSelectedDongs([...selectedDongs, dong]);
   };
+  const selectAllDongs = () => setSelectedDongs(selectedDongs.length === dongOptions.length ? [] : [...dongOptions]);
+
+  // const options = {
+  //   responsive: true,
+  //   maintainAspectRatio: false,
+  //   interaction: {
+  //     mode: 'nearest' as const,
+  //     axis: 'x' as const,
+  //     intersect: false 
+  //   },
+  //   plugins: {
+  //     legend: { display: false },
+  //     tooltip: {
+  //       backgroundColor: 'rgba(255, 255, 255, 0.95)',
+  //       titleColor: '#111',
+  //       bodyColor: '#333',
+  //       borderColor: '#ddd',
+  //       borderWidth: 1,
+  //       padding: 10,
+  //       displayColors: true,
+  //     }
+  //   },
+  //   scales: {
+  //     y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+  //     x: { grid: { display: false } }
+  //   }
+  // };
 
   const options = {
     responsive: true,
     maintainAspectRatio: false,
     interaction: {
-      mode: 'nearest' as const,
+      mode: 'nearest' as const, // 마우스와 가장 가까운 점 하나만 찾음
       axis: 'x' as const,
-      intersect: true 
+      intersect: true           // [핵심] 마우스가 정확히 점 위에 올라갔을 때만 반응 (이게 false면 근처만 가도 뜸)
     },
     plugins: {
       legend: { display: false },
@@ -256,6 +378,7 @@ export default function Dashboard() {
         borderWidth: 1,
         padding: 10,
         displayColors: true,
+        // 툴팁에 "부동산 이름: 00건" 형태로 깔끔하게 나오도록 설정
         callbacks: {
           label: function(context: any) {
             return ` ${context.dataset.label}: ${context.raw}건`;
@@ -264,10 +387,7 @@ export default function Dashboard() {
       }
     },
     scales: {
-      y: {
-        beginAtZero: true, // 0부터 시작
-        ticks: { stepSize: 1, precision: 0 }
-      },
+      y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
       x: { grid: { display: false } }
     }
   };
@@ -276,275 +396,159 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
       <div className="max-w-7xl mx-auto">
         
-        <div className="flex items-center gap-2 mb-4">
-          <LayoutDashboard className="text-blue-600 w-7 h-7" />
-          <h1 className="text-2xl font-bold text-gray-800">DMC 파크뷰자이 매물 현황 분석</h1>
+        {/* 헤더 */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-2">
+            <LayoutDashboard className="text-blue-600 w-8 h-8" />
+            <h1 className="text-2xl font-bold text-gray-800">DMC 파크뷰자이 매물 현황판</h1>
+          </div>
+          <div className="text-right">
+             <div className="text-xs text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full">
+               Last Updated: {lastUpdated || "-"}
+             </div>
+          </div>
         </div>
 
-       {/* 컨트롤러 패널 */}
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-wrap gap-4 items-end z-10 relative">
-          
-          {/* [1] 거래 유형 선택 (매매/전세) */}
-          <div className="flex flex-col gap-1">
-             <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-              <Repeat className="w-3 h-3" /> 거래 유형
-            </label>
-            <div className="relative">
-                <select
-                    value={tradeType}
-                    onChange={(e) => setTradeType(e.target.value)}
-                    className="appearance-none w-24 bg-blue-50 text-blue-700 font-bold px-3 py-2 rounded-md border border-blue-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                >
+        {/* 컨트롤러 */}
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm mb-8 flex flex-wrap gap-6 items-end">
+           {/* 거래 유형 */}
+           <div className="flex flex-col gap-2">
+             <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><Repeat className="w-3 h-3"/> 거래 유형</label>
+             <div className="relative">
+                <select value={tradeType} onChange={(e) => setTradeType(e.target.value)} className="appearance-none w-28 bg-blue-50 text-blue-700 font-bold px-4 py-2.5 rounded-lg border border-blue-200 text-sm focus:ring-2 focus:ring-blue-500 cursor-pointer">
                     <option value="매매">매매</option>
                     <option value="전세">전세</option>
                 </select>
-                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
             </div>
-          </div>
+           </div>
 
-          {/* [2] 날짜 선택 */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-              <CalendarIcon className="w-3 h-3" /> 조회 기간
-            </label>
-            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-md border border-gray-200">
-              <input 
-                type="date" 
-                value={startDate} 
-                onChange={(e) => setStartDate(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
-              />
+           {/* 날짜 */}
+           <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><CalendarIcon className="w-3 h-3"/> 조회 기간</label>
+            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium"/>
               <span className="text-gray-400">~</span>
-              <input 
-                type="date" 
-                value={endDate} 
-                onChange={(e) => setEndDate(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
-              />
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium"/>
             </div>
-          </div>
+           </div>
 
-          {/* [3] 시간 선택 */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-              <Clock className="w-3 h-3" /> 시간대 (시)
-            </label>
-            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-md border border-gray-200">
-              <select 
-                value={startHour} 
-                onChange={(e) => setStartHour(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
-              >
-                {HOURS.map(h => <option key={`start-${h}`} value={h}>{h}시</option>)}
-              </select>
+           {/* 시간 */}
+           <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><Clock className="w-3 h-3"/> 시간대</label>
+            <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+              <select value={startHour} onChange={(e) => setStartHour(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium">{HOURS.map(h => <option key={h} value={h}>{h}시</option>)}</select>
               <span className="text-gray-400">~</span>
-              <select 
-                value={endHour} 
-                onChange={(e) => setEndHour(e.target.value)}
-                className="text-sm bg-transparent outline-none cursor-pointer text-gray-900"
-              >
-                {HOURS.map(h => <option key={`end-${h}`} value={h}>{h}시</option>)}
-              </select>
+              <select value={endHour} onChange={(e) => setEndHour(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium">{HOURS.map(h => <option key={h} value={h}>{h}시</option>)}</select>
             </div>
-          </div>
+           </div>
 
-          {/* [4] 부동산 선택 (다중) */}
-          <div className="flex flex-col gap-1 min-w-[220px] relative" ref={dropdownRef}>
-            <label className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-              <Building2 className="w-3 h-3" /> 부동산 선택 (다중)
-            </label>
-            
-            <button 
-              onClick={() => setIsAgentFilterOpen(!isAgentFilterOpen)}
-              className="w-full text-sm bg-gray-50 px-3 py-2 rounded-md border border-gray-200 flex justify-between items-center hover:border-blue-500 transition-colors text-gray-900"
-            >
-              <span className="truncate">
-                {agentOptions.length === 0 
-                  ? "데이터 없음" 
-                  : selectedAgents.length === agentOptions.length 
-                    ? "전체 부동산 선택됨" 
-                    : `${selectedAgents.length}개 부동산 선택됨`}
-              </span>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            </button>
-
-            {/* 드롭다운 메뉴 */}
-            {isAgentFilterOpen && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-[300px]">
-                <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer font-bold text-gray-900 hover:text-blue-600">
-                    <input 
-                      type="checkbox" 
-                      checked={agentOptions.length > 0 && selectedAgents.length === agentOptions.length}
-                      onChange={handleSelectAll}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    전체 선택 ({agentOptions.length})
-                  </label>
-                </div>
-                
-                <div className="overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                  {agentOptions.map((agent) => (
-                    <label key={agent} className="flex items-center gap-2 text-sm text-gray-900 cursor-pointer hover:bg-blue-50 p-1 rounded transition-colors">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedAgents.includes(agent)}
-                        onChange={() => handleAgentToggle(agent)}
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="truncate">{agent}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button 
-            onClick={fetchData} 
-            className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-bold transition-colors shadow-sm h-[38px] mb-[1px]"
-          >
-            <Search className="w-4 h-4" /> 조회하기
-          </button>
-
-          <div className="flex-1 text-right self-end mb-2">
-            <span className="text-xs text-gray-400">Updated: {lastUpdated}</span>
-          </div>
+           <button onClick={fetchAllData} className="ml-auto flex items-center gap-2 px-6 py-2.5 bg-gray-900 hover:bg-black text-white rounded-lg text-sm font-bold transition-all shadow-md active:scale-95">
+             <Search className="w-4 h-4" /> 데이터 조회
+           </button>
         </div>
 
 
-        {/* 차트 영역 */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6 z-0 relative">
-          <div className="w-full h-auto lg:h-[500px] flex flex-col lg:flex-row gap-6 lg:gap-4">
-            
-            <div className="flex-1 h-[300px] lg:h-full min-h-[300px] flex items-center justify-center">
-              
-              {selectedAgents.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 text-gray-400">
-                  <div className="p-4 bg-gray-50 rounded-full">
-                    <Building2 className="w-8 h-8 opacity-40" />
-                  </div>
-                  <div className="text-center">
-                    <p className="font-medium">선택된 부동산 정보가 없습니다.</p>
-                    <p className="text-xs mt-1 text-gray-300">상단의 드롭다운에서 부동산을 선택해주세요.</p>
-                  </div>
+        {/* 차트 영역 A: 부동산 */}
+        <div className="mb-8">
+            <div className="flex justify-between items-end mb-3 px-1">
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-blue-600"/> 부동산별 추이
+                </h2>
+                <div className="relative" ref={agentDropdownRef}>
+                    <button onClick={() => setIsAgentFilterOpen(!isAgentFilterOpen)} className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700">
+                        {selectedAgents.length === agentOptions.length ? "전체 부동산 선택됨" : `${selectedAgents.length}개 선택됨`}
+                        <ChevronDown className="w-3 h-3"/>
+                    </button>
+                    {isAgentFilterOpen && (
+                        <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px]">
+                            <div className="p-2 border-b bg-gray-50 sticky top-0"><label className="flex items-center gap-2 text-xs font-bold cursor-pointer"><input type="checkbox" checked={selectedAgents.length === agentOptions.length} onChange={selectAllAgents} className="rounded text-blue-600"/>전체 선택</label></div>
+                            <div className="overflow-y-auto p-2 custom-scrollbar">
+                                {agentOptions.map(opt => (
+                                    <label key={opt} className="flex items-center gap-2 text-xs py-1 cursor-pointer hover:bg-blue-50 rounded px-1"><input type="checkbox" checked={selectedAgents.includes(opt)} onChange={() => toggleAgent(opt)} className="rounded text-blue-600"/><span className="truncate">{opt}</span></label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
-
-              ) : loading ? (
-                <div className="flex flex-col items-center gap-3 text-gray-400">
-                  <div className="w-8 h-8 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
-                  <p className="text-sm">데이터 불러오는 중...</p>
-                </div>
-
-              ) : chartData && chartData.labels && chartData.labels.length > 0 ? (
-                <div className="w-full h-full">
-                  <Line options={options} data={chartData} />
-                </div>
-
-              ) : (
-                <div className="flex flex-col items-center gap-3 text-gray-400">
-                  <div className="p-4 bg-gray-50 rounded-full">
-                    <Search className="w-8 h-8 opacity-40" />
-                  </div>
-                  <div className="text-center">
-                    <p className="font-medium">수집된 정보가 없습니다.</p>
-                    <p className="text-xs mt-1 text-gray-300">해당 조건의 매물 데이터가 없습니다.</p>
-                  </div>
-                </div>
-              )}
             </div>
-
-            {/* 범례 */}
-            {!loading && selectedAgents.length > 0 && chartData && chartData.labels.length > 0 && (
-              <div className="w-full lg:w-[280px] h-[250px] lg:h-full border-t lg:border-t-0 lg:border-l border-gray-100 pt-4 lg:pt-0 lg:pl-4 flex flex-col">
-                <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider flex justify-between items-center">
-                  <span>부동산 목록 ({chartData.datasets.length})</span>
-                  <span className="text-[10px] font-normal text-gray-400">스크롤 가능</span>
-                </h3>
-                
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                  <ul className="space-y-1">
-                    {chartData.datasets.map((dataset: any) => (
-                      <li key={dataset.label} className="flex items-center gap-2 text-xs text-gray-600 hover:bg-gray-50 p-2 rounded cursor-default border border-transparent hover:border-gray-100 transition-colors">
-                        <span 
-                          className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" 
-                          style={{ backgroundColor: dataset.borderColor }}
-                        />
-                        <span className="truncate" title={dataset.label}>
-                          {dataset.label}
-                        </span>
-                        <span className="ml-auto font-mono text-gray-400 text-[10px]">
-                           {dataset.data.filter((v:any) => v !== null).slice(-1)[0] ?? '-'}건
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-          </div>
+            
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-[350px]">
+                {loading ? <div className="h-full flex items-center justify-center text-gray-400">데이터를 불러오는 중...</div> :
+                 agentChartData ? <Line options={options} data={agentChartData} /> : <div className="h-full flex items-center justify-center text-gray-300">데이터 없음</div>}
+            </div>
         </div>
 
-        {/* 하단 상세 리스트 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-gray-800">
-                상세 수집 내역 <span className="text-blue-600">({tradeType})</span>
-            </h2>
-            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">총 {logs.length}건</span>
+        {/* 차트 영역 B: 동 */}
+        <div className="mb-10">
+            <div className="flex justify-between items-end mb-3 px-1">
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-green-600"/> 동(Dong)별 추이
+                </h2>
+                <div className="relative" ref={dongDropdownRef}>
+                    <button onClick={() => setIsDongFilterOpen(!isDongFilterOpen)} className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700">
+                        {selectedDongs.length === dongOptions.length ? "전체 동 선택됨" : `${selectedDongs.length}개 선택됨`}
+                        <ChevronDown className="w-3 h-3"/>
+                    </button>
+                    {isDongFilterOpen && (
+                        <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px]">
+                             <div className="p-2 border-b bg-gray-50 sticky top-0"><label className="flex items-center gap-2 text-xs font-bold cursor-pointer"><input type="checkbox" checked={selectedDongs.length === dongOptions.length} onChange={selectAllDongs} className="rounded text-green-600"/>전체 선택</label></div>
+                            <div className="overflow-y-auto p-2 custom-scrollbar">
+                                {dongOptions.map(opt => (
+                                    <label key={opt} className="flex items-center gap-2 text-xs py-1 cursor-pointer hover:bg-green-50 rounded px-1"><input type="checkbox" checked={selectedDongs.includes(opt)} onChange={() => toggleDong(opt)} className="rounded text-green-600"/><span className="truncate">{opt}</span></label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-[350px]">
+                {loading ? <div className="h-full flex items-center justify-center text-gray-400">데이터를 불러오는 중...</div> :
+                 dongChartData ? <Line options={options} data={dongChartData} /> : <div className="h-full flex items-center justify-center text-gray-300">데이터 없음</div>}
+            </div>
+        </div>
+
+        {/* 하단 리스트 (최신 200개만 표시) */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <h2 className="text-sm font-bold text-gray-700">최신 수집 로그 (Top 200)</h2>
+            <span className="text-xs text-gray-500">리스트는 최신 200건만 표시됩니다</span>
           </div>
           <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
             <table className="w-full text-sm text-left text-gray-500">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+              <thead className="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-3">날짜/시간</th>
-                  <th className="px-6 py-3">중개사</th>
-                  <th className="px-6 py-3">위치</th>
+                  <th className="px-6 py-3">시간</th>
+                  <th className="px-6 py-3">부동산</th>
+                  <th className="px-6 py-3">동(Dong)</th>
                   <th className="px-6 py-3">스펙</th>
                   <th className="px-6 py-3">금액</th>
-                  <th className="px-6 py-3">매물번호</th>
+                  <th className="px-6 py-3">링크</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logs.length > 0 ? (
-                  logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-3 font-medium text-gray-900">
-                        <div className="text-xs text-gray-400">{log.crawl_date}</div>
+                {logs.map((log) => (
+                    <tr key={log.id} className="hover:bg-blue-50 transition-colors">
+                      <td className="px-6 py-3 font-medium text-gray-900 w-[120px]">
+                        <div className="text-[10px] text-gray-400">{log.crawl_date}</div>
                         <div>{log.crawl_time}</div>
                       </td>
                       <td className="px-6 py-3 font-bold text-blue-600">{log.agent}</td>
-                      <td className="px-6 py-3">{log.dong}</td>
+                      <td className="px-6 py-3 font-bold text-green-600">{log.dong}</td>
                       <td className="px-6 py-3 text-gray-600">{log.spec}</td>
                       <td className="px-6 py-3 font-bold text-gray-800">{log.price}</td>
                       <td className="px-6 py-3">
                         {log.article_no && log.article_no !== '-' ? (
-                          <a 
-                            href={`https://new.land.naver.com/complexes/108064?articleNo=${log.article_no}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-blue-500 hover:text-blue-700 hover:underline font-medium"
-                            title="네이버 부동산 상세 보기"
-                          >
-                            {log.article_no}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
+                          <a href={`https://new.land.naver.com/complexes/108064?articleNo=${log.article_no}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-600"><ExternalLink className="w-4 h-4" /></a>
+                        ) : "-"}
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="text-center py-10 text-gray-400">조회된 데이터가 없습니다.</td>
-                  </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         </div>
+
       </div>
     </div>
   );
