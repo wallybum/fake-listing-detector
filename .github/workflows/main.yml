@@ -5,6 +5,11 @@ on:
  #   - cron: '17 * * * *'
   workflow_dispatch:
 
+# github action 중복실행 방지
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
