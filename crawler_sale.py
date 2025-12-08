@@ -149,10 +149,11 @@ def run_crawler():
                 try: spec = soup.select_one("div.info_area .spec").get_text(strip=True)
                 except: spec = ""
 
-                # 펼치기 로직
+                # 펼치기 로직 
                 multi_btn = parent.find_elements(By.CSS_SELECTOR, "span.label--multicp")
                 targets = []
-                
+              
+                # (중개사 N곳 버튼) 버튼이 있을 경우
                 if multi_btn:
                     driver.execute_script("arguments[0].click();", multi_btn[0])
                     time.sleep(0.3)
@@ -168,43 +169,64 @@ def run_crawler():
                 # ----------------------------------------------------------
                 # [수정] 매물번호(article_no) 추출 로직 적용
                 # ----------------------------------------------------------
-                for target in targets:
-                    # 1. HTML 파싱 (텍스트 정보용)
-                    t_html = target.get_attribute('outerHTML')
-                    t_soup = BeautifulSoup(t_html, "html.parser")
-
-                    try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
-                    except: agent = "알수없음"
-                    
-                    try: price = t_soup.select_one("span.price").get_text(strip=True)
-                    except: price = ""
-
-                    article_no = "-"
-
-                    # 방법 1: Selenium으로 직접 속성 값 가져오기 (가장 정확함)
-                    # 네이버 부동산은 item_inner 태그에 data-article-no="번호" 형태로 값을 숨겨둡니다.
+               for target in targets:
                     try:
-                        raw_no = target.get_attribute("data-article-no")
-                        if raw_no:
-                            article_no = raw_no
-                    except: pass
+                        # 1. [클릭] 상세 정보를 띄우기 위해 리스트의 아이템 클릭
+                        #    (가려짐 방지를 위해 JS 클릭 사용)
+                        link_btn = target.find_element(By.CSS_SELECTOR, "a.item_link")
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+                        driver.execute_script("arguments[0].click();", link_btn)
 
-
-                    # 방법 2: 방법 1 실패 시, HTML 태그 분석 (비상용)
-                    if article_no == "-" or not article_no:
+                        # 2. [대기] 우측 상세창(detail_panel)의 테이블이 뜰 때까지 대기 (최대 3초)
                         try:
-                            inner_div = t_soup.select_one("div.item_inner")
-                            if inner_div and inner_div.has_attr("data-article-no"):
-                                article_no = inner_div["data-article-no"]
-                        except: pass
+                            WebDriverWait(driver, 3).until(
+                                EC.presence_of_element_located((By.CSS_SELECTOR, "div.detail_box--summary"))
+                            )
+                        except:
+                            print("   ⚠️ 상세 로딩 실패 (시간 초과)")
+                            pass
 
-                    # 방법 3: 체크박스 값 확인 (구버전 호환)
-                    if article_no == "-" or not article_no:
-                        try:
-                            checkbox = t_soup.select_one("input[name='item_check']")
-                            if checkbox and checkbox.has_attr('value'):
-                                article_no = checkbox['value']
-                        except: pass
+                        # 3. [상세 파싱] 현재 브라우저 전체 소스에서 상세창 부분 찾기
+                        #    (주의: target이 아니라 driver.page_source를 새로 읽어야 함)
+                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
+                        detail_box = full_soup.select_one("div.detail_box--summary")
+                        
+                        article_no = "-"
+
+                        # 4. [번호 추출] 상세 테이블에서 '매물번호' 찾기
+                        if detail_box:
+                            rows = detail_box.select("tr.info_table_item")
+                            for row in rows:
+                                th = row.select_one("th.table_th")
+                                if th and "매물번호" in th.get_text():
+                                    article_no = row.select_one("td.table_td").get_text(strip=True)
+                                    break
+
+                        # 5. [기본 정보] 리스트 상의 정보 추출 (가격, 중개사 등)
+                        #    (target은 여전히 유효하므로 여기서 가져옴)
+                        t_html = target.get_attribute('outerHTML')
+                        t_soup = BeautifulSoup(t_html, "html.parser")
+
+                        try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
+                        except: agent = "알수없음"
+                        
+                        try: price = t_soup.select_one("span.price").get_text(strip=True)
+                        except: price = ""
+
+                        print(f"   📥 수집: {dong} / {price} / {agent} / 번호:{article_no}")
+
+                        db_data.append({
+                            "agent": agent, "dong": dong, "spec": spec, "price": price,
+                            "article_no": article_no, "trade_type": "매매", 
+                            "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                        })
+                        
+                        # [속도 조절] 너무 빠르면 차단되거나 로딩 꼬일 수 있으니 약간 대기
+                        time.sleep(0.3)
+
+                    except Exception as e:
+                        print(f"   ❌ 매물 처리 에러: {e}")
+                        continue
                     
                     db_data.append({
                         "agent": agent, "dong": dong, "spec": spec, "price": price,
