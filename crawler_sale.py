@@ -171,39 +171,32 @@ def run_crawler():
                 # ----------------------------------------------------------
                 for target in targets:
                     try:
-                        # 1. [클릭] 상세 정보를 띄우기 위해 리스트의 아이템 클릭
-                        #    (가려짐 방지를 위해 JS 클릭 사용)
+                        # 1. 클릭 (JS 사용)
                         link_btn = target.find_element(By.CSS_SELECTOR, "a.item_link")
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
                         driver.execute_script("arguments[0].click();", link_btn)
 
-                        # 2. [대기] 우측 상세창(detail_panel)의 테이블이 뜰 때까지 대기 (최대 3초)
+                        # 2. [핵심] 화면 로딩을 기다리지 않고, URL에 'articleNo'가 뜰 때까지만 짧게 대기
+                        #    (화면 렌더링보다 URL 변경이 훨씬 빠름)
+                        article_no = "-"
                         try:
-                            WebDriverWait(driver, 3).until(
-                                EC.presence_of_element_located((By.CSS_SELECTOR, "div.detail_box--summary"))
-                            )
+                            # 1초 안에 URL이 바뀌면 성공, 아니면 실패 처리 (속도를 위해 짧게 설정)
+                            WebDriverWait(driver, 1).until(lambda d: "articleNo=" in d.current_url)
+                            
+                            # 현재 URL에서 articleNo 파라미터 추출
+                            curr_url = driver.current_url
+                            parsed_url = urlparse(curr_url)
+                            qs = parse_qs(parsed_url.query)
+                            
+                            if "articleNo" in qs:
+                                article_no = qs["articleNo"][0]
+                                
                         except:
-                            print("   ⚠️ 상세 로딩 실패 (시간 초과)")
+                            # 실패시(URL 안바뀜 등) 로그 찍고 넘어감 (기존 방식처럼 오래 기다리지 않음)
+                            print("   ⚠️ URL 변환 감지 실패, 건너뜀")
                             pass
 
-                        # 3. [상세 파싱] 현재 브라우저 전체 소스에서 상세창 부분 찾기
-                        #    (주의: target이 아니라 driver.page_source를 새로 읽어야 함)
-                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
-                        detail_box = full_soup.select_one("div.detail_box--summary")
-                        
-                        article_no = "-"
-
-                        # 4. [번호 추출] 상세 테이블에서 '매물번호' 찾기
-                        if detail_box:
-                            rows = detail_box.select("tr.info_table_item")
-                            for row in rows:
-                                th = row.select_one("th.table_th")
-                                if th and "매물번호" in th.get_text():
-                                    article_no = row.select_one("td.table_td").get_text(strip=True)
-                                    break
-
-                        # 5. [기본 정보] 리스트 상의 정보 추출 (가격, 중개사 등)
-                        #    (target은 여전히 유효하므로 여기서 가져옴)
+                        # 3. 리스트 상의 정보 추출 (이건 클릭 안 해도 알 수 있음)
                         t_html = target.get_attribute('outerHTML')
                         t_soup = BeautifulSoup(t_html, "html.parser")
 
@@ -213,7 +206,7 @@ def run_crawler():
                         try: price = t_soup.select_one("span.price").get_text(strip=True)
                         except: price = ""
 
-                        print(f"   📥 수집: {dong} / {price} / {agent} / 번호:{article_no}")
+                        print(f"   🚀 [Fast] {dong} / {price} / {agent} / 번호:{article_no}")
 
                         db_data.append({
                             "agent": agent, "dong": dong, "spec": spec, "price": price,
@@ -221,17 +214,12 @@ def run_crawler():
                             "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                         })
                         
-                        # [속도 조절] 너무 빠르면 차단되거나 로딩 꼬일 수 있으니 약간 대기
-                        time.sleep(0.3)
+                        # [중요] 불필요한 sleep 제거 (WebDriverWait가 기다려주므로)
+                        # time.sleep(0.3)  <-- 삭제
 
                     except Exception as e:
-                        print(f"   ❌ 매물 처리 에러: {e}")
+                        print(f"   ❌ 에러: {e}")
                         continue
-                    
-                    db_data.append({
-                        "agent": agent, "dong": dong, "spec": spec, "price": price,
-                        "article_no": article_no,  "trade_type" : "매매","crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
-                    })
 
 
                     # ------------------------------

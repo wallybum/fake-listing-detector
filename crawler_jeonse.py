@@ -174,47 +174,56 @@ def run_crawler():
                 # [수정] 매물번호(article_no) 추출 로직 적용
                 # ----------------------------------------------------------
                 for target in targets:
-                    # 1. HTML 파싱 (텍스트 정보용)
-                    t_html = target.get_attribute('outerHTML')
-                    t_soup = BeautifulSoup(t_html, "html.parser")
-
-                    try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
-                    except: agent = "알수없음"
-                    
-                    try: price = t_soup.select_one("span.price").get_text(strip=True)
-                    except: price = ""
-
-                    article_no = "-"
-
-                    # 방법 1: Selenium으로 직접 속성 값 가져오기 (가장 정확함)
-                    # 네이버 부동산은 item_inner 태그에 data-article-no="번호" 형태로 값을 숨겨둡니다.
                     try:
-                        raw_no = target.get_attribute("data-article-no")
-                        if raw_no:
-                            article_no = raw_no
-                    except: pass
+                        # 1. 클릭 (JS 사용)
+                        link_btn = target.find_element(By.CSS_SELECTOR, "a.item_link")
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+                        driver.execute_script("arguments[0].click();", link_btn)
 
-
-                    # 방법 2: 방법 1 실패 시, HTML 태그 분석 (비상용)
-                    if article_no == "-" or not article_no:
+                        # 2. [핵심] 화면 로딩을 기다리지 않고, URL에 'articleNo'가 뜰 때까지만 짧게 대기
+                        #    (화면 렌더링보다 URL 변경이 훨씬 빠름)
+                        article_no = "-"
                         try:
-                            inner_div = t_soup.select_one("div.item_inner")
-                            if inner_div and inner_div.has_attr("data-article-no"):
-                                article_no = inner_div["data-article-no"]
-                        except: pass
+                            # 1초 안에 URL이 바뀌면 성공, 아니면 실패 처리 (속도를 위해 짧게 설정)
+                            WebDriverWait(driver, 1).until(lambda d: "articleNo=" in d.current_url)
+                            
+                            # 현재 URL에서 articleNo 파라미터 추출
+                            curr_url = driver.current_url
+                            parsed_url = urlparse(curr_url)
+                            qs = parse_qs(parsed_url.query)
+                            
+                            if "articleNo" in qs:
+                                article_no = qs["articleNo"][0]
+                                
+                        except:
+                            # 실패시(URL 안바뀜 등) 로그 찍고 넘어감 (기존 방식처럼 오래 기다리지 않음)
+                            print("   ⚠️ URL 변환 감지 실패, 건너뜀")
+                            pass
 
-                    # 방법 3: 체크박스 값 확인 (구버전 호환)
-                    if article_no == "-" or not article_no:
-                        try:
-                            checkbox = t_soup.select_one("input[name='item_check']")
-                            if checkbox and checkbox.has_attr('value'):
-                                article_no = checkbox['value']
-                        except: pass
-                    
-                    db_data.append({
-                        "agent": agent, "dong": dong, "spec": spec, "price": price,
-                        "article_no": article_no,  "trade_type" : "전세","crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
-                    })
+                        # 3. 리스트 상의 정보 추출 (이건 클릭 안 해도 알 수 있음)
+                        t_html = target.get_attribute('outerHTML')
+                        t_soup = BeautifulSoup(t_html, "html.parser")
+
+                        try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
+                        except: agent = "알수없음"
+                        
+                        try: price = t_soup.select_one("span.price").get_text(strip=True)
+                        except: price = ""
+
+                        print(f"   🚀 [Fast] {dong} / {price} / {agent} / 번호:{article_no}")
+
+                        db_data.append({
+                            "agent": agent, "dong": dong, "spec": spec, "price": price,
+                            "article_no": article_no, "trade_type": "전세", 
+                            "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                        })
+                        
+                        # [중요] 불필요한 sleep 제거 (WebDriverWait가 기다려주므로)
+                        # time.sleep(0.3)  <-- 삭제
+
+                    except Exception as e:
+                        print(f"   ❌ 에러: {e}")
+                        continue
 
 
                     # ------------------------------
