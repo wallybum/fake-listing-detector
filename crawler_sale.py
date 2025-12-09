@@ -207,8 +207,12 @@ def run_crawler():
                         except: price = ""
 
                         print(f"   🚀 [Fast] {dong} / {price} / {agent} / 번호:{article_no}")
-
+                    
+                        # 4. [핵심] Custom ID 생성 (매물번호 + 날짜 + 시간)
+                        custom_id = f"{article_no}_{TODAY_STR.replace('-','')}_{HOUR_STR}"
+                        
                         db_data.append({
+                            "custom_id": custom_id, # PK (Unique)
                             "agent": agent, "dong": dong, "spec": spec, "price": price,
                             "article_no": article_no, "trade_type": "매매", 
                             "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
@@ -252,8 +256,9 @@ def run_crawler():
         # ------------------------------------------------------------------
         if db_data:
             try:
-                supabase.table('real_estate_logs').insert(db_data).execute()
-                print(f"✅ [Log] 총 {len(db_data)}건 저장 완료")
+                # supabase.table('real_estate_logs').insert(db_data).execute()
+                supabase.table('real_estate_logs').upsert(db_data, on_conflict="custom_id").execute()
+                print(f"✅ [Log] 총 {len(db_data)}건 저장(Upsert) 완료")
             except Exception as e:
                 print(f"❌ [Log] 저장 실패: {e}")
 
