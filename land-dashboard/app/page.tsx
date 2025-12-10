@@ -38,9 +38,32 @@ interface StatData {
   count: number;
 }
 
+const isLocal = process.env.NODE_ENV === 'development';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+// const supabase = createClient(supabaseUrl, supabaseKey);
+
+const createSupbaseClient = () => {
+  if(!supabaseUrl || !supabaseKey){
+    // Local 환경에서 키가 없을 경우, 명시적인 에러를 띄움.
+    if(isLocal){
+      console.error("🚨 [Local Error] Supabase 환경변수가 설정되지 않았습니다. .env.local 파일을 확인해주세요.");
+      throw new Error("Supabase Key missing");
+    }
+    throw new Error("Supbase Environment Variables missing!")
+  }
+  const options = isLocal ? {
+    auth: {persistSession : false}
+  }
+  : {
+
+  };
+  return createClient(supabaseUrl,supabaseKey,options);
+}
+
+// 싱글톤으로 export
+export const supabase = createSupbaseClient();
 
 const COLORS = [
   "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", 
