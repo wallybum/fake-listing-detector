@@ -174,63 +174,98 @@ def run_crawler():
                 # [수정] 매물번호(article_no) 추출 로직 적용
                 # ----------------------------------------------------------
                 for target in targets:
-                    try:
-                        # 1. 클릭 (JS 사용)
-                        link_btn = target.find_element(By.CSS_SELECTOR, "a.item_link")
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
-                        driver.execute_script("arguments[0].click();", link_btn)
+                    # 🌟 [필수] 루프 시작할 때마다 변수 초기화 (이전 값 덮어쓰기 방지)
+                    article_no = None
+                    agent_name = None
+                    price = ""
 
-                        time.sleep(0.5)
+                    try:
+                        # ----------------------------------------------------------
+                        # 1. 클릭할 요소 결정
+                        # ----------------------------------------------------------
+                        click_element = None
                         
-                        # 2. [핵심] 우측 상세 패널이 로딩될 때까지 대기
+                        # label_area 안의 "네이버에서 보기(label--cp)" 버튼 존재 여부 확인
+                        naver_btns = target.find_elements(By.CSS_SELECTOR, "div.label_area a.label--cp")
+
+                        if len(naver_btns) > 0:
+                            # [Case A] 버튼이 있음 -> 버튼을 클릭 타겟으로 설정
+                            click_element = naver_btns[0]
+                            # print("   👉 [Button] '네이버에서 보기' 클릭")
+                        else:
+                            # [Case B] 버튼이 없음 -> 일반 제목 링크를 클릭 타겟으로 설정
+                            click_element = target.find_element(By.CSS_SELECTOR, "a.item_link")
+
+                        # ----------------------------------------------------------
+                        # 2. 클릭 실행 & 상세 패널 로딩
+                        # ----------------------------------------------------------
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+                        driver.execute_script("arguments[0].click();", click_element)
+                        
+                        time.sleep(0.6) # 패널 열리는 시간 확보
+
+                        # 우측 상세 패널이 뜰 때까지 대기
                         try:
-                            WebDriverWait(driver, 1.5).until(
+                            WebDriverWait(driver, 2).until(
                                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.detail_contents_inner"))
                             )
                         except:
-                            print("   ⚠️ 상세 화면 로딩 시간 초과")
-                            pass
-                        
-                         # 3. 상세 영역만 다시 파싱
-                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
+                            pass 
 
-                        # 우측 상세 정보 영역 찾기
+                        # ----------------------------------------------------------
+                        # 3. 상세 패널 파싱 (여기가 메인)
+                        # ----------------------------------------------------------
+                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
                         detail_area = full_soup.select_one("div.detail_contents_inner")
 
-                        article_no = "-"
-
                         if detail_area:
-                            # '매물번호' 텍스트가 있는 th를 찾고, 그 형제 td를 찾음
                             rows = detail_area.select("tr.info_table_item")
                             for row in rows:
                                 th = row.select_one("th")
+                                # '매물번호'라고 적힌 행을 찾아서 그 옆의 td 값을 가져옴
                                 if th and "매물번호" in th.get_text():
                                     td = row.select_one("td")
                                     if td:
                                         article_no = td.get_text(strip=True)
                                         break
-                        # 4. 목록 상의 정보 추출
+                        
+                        # [보완] 만약 상세 패널 로딩 실패 시, 리스트의 data-attribute 확인
+                        # (일반 매물의 경우 리스트에도 번호가 있을 수 있음)
+                        if not article_no:
+                            try:
+                                article_no = click_element.get_attribute("data-article-no")
+                                if not article_no:
+                                     # 버튼을 클릭했는데 번호가 없으면 item_link에서 재시도
+                                     article_no = target.find_element(By.CSS_SELECTOR, "a.item_link").get_attribute("data-article-no")
+                            except: pass
+
+                        # ----------------------------------------------------------
+                        # 4. 나머지 정보 추출 및 저장
+                        # ----------------------------------------------------------
                         t_html = target.get_attribute('outerHTML')
                         t_soup = BeautifulSoup(t_html, "html.parser")
 
-                        try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
-                        except: agent = "알수없음"
+                        try: agent_name = t_soup.select("a.agent_name")[-1].get_text(strip=True)
+                        except: agent_name = "알수없음"
                         
                         try: price = t_soup.select_one("span.price").get_text(strip=True)
                         except: price = ""
 
-                        print(f"   🚀 [Fast] {dong} / {price} / {agent} / 번호:{article_no}")
+                        # 🌟 [검증] 매물번호가 여전히 None이면 저장 건너뛰기
+                        if not article_no:
+                            print(f"   ❌ 매물번호 추출 실패 (Skip) - {agent_name}")
+                            continue
+
+                        print(f"   🚀 [전세] {dong} / {price} / {agent_name} / 번호:{article_no}")
 
                         db_data.append({
-                            "agent": agent, "dong": dong, "spec": spec, "price": price,
+                            "agent": agent_name, "dong": dong, "spec": spec, "price": price,
                             "article_no": article_no, "trade_type": "전세", 
                             "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                         })
-                        
-                
 
                     except Exception as e:
-                        print(f"   ❌ 에러: {e}")
+                        print(f"   ❌ 파싱 에러: {e}")
                         continue
             except: continue
         
