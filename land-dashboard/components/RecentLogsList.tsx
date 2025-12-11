@@ -330,7 +330,11 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
                                     {item.current_price}
                                     {!isDead && item.price_direction === 'up' && <ArrowUpRight className="w-5 h-5 text-red-500"/>}
                                     {!isDead && item.price_direction === 'down' && <ArrowDownRight className="w-5 h-5 text-blue-500"/>}
-                                    {!isDead && item.price_direction === 'fluctuated' && <Activity className="w-5 h-5 text-purple-500" title="변동 후 복귀"/>}
+                                   {!isDead && item.price_direction === 'fluctuated' && (
+                                        <span title="변동 후 복귀" className="cursor-help">
+                                            <Activity className="w-5 h-5 text-purple-500"/>
+                                        </span>
+                                    )}
                                 </div>
                                 {item.has_history_change && <div className="text-xs text-purple-600 font-medium bg-purple-50 px-1 rounded inline-block mt-1">최초: {item.initial_price}</div>}
                             </div>
