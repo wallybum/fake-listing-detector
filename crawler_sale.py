@@ -176,7 +176,7 @@ def run_crawler():
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
                         driver.execute_script("arguments[0].click();", link_btn)
 
-                        time.sleep(1.0)
+                        time.sleep(0.5)
 
                         # 2. [핵심] 우측 상세 패널이 로딩될 때까지 대기
                         try:
@@ -229,28 +229,6 @@ def run_crawler():
                         print(f"   ❌ 에러: {e}")
                         continue
 
-
-                    # ------------------------------
-                    # t_soup = BeautifulSoup(target.get_attribute('outerHTML'), "html.parser")
-                    # try: agent = t_soup.select("a.agent_name")[-1].get_text(strip=True)
-                    # except: agent = "알수없음"
-                    # try: price = t_soup.select_one("span.price").get_text(strip=True)
-                    # except: price = ""
-                    
-                    # [여기 수정됨] 체크박스 value에서 번호 추출
-                    # article_no = "-"
-                    # try:
-                    #     # input 태그 중 name이 'item_check'인 것을 찾음 (네이버 부동산 구조)
-                    #     checkbox = t_soup.select_one("input[name='item_check']")
-                    #     if checkbox and checkbox.get('value'):
-                    #         article_no = checkbox.get('value')
-                    # except Exception:
-                    #     pass
-                    
-                    # db_data.append({
-                    #     "agent": agent, "dong": dong, "spec": spec, "price": price,
-                    #     "article_no": article_no, "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
-                    # })
             except: continue
         
         driver.quit()
