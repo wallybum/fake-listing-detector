@@ -215,27 +215,84 @@ def run_crawler():
                         # ----------------------------------------------------------
                         # 3. 상세 패널 파싱 (여기가 메인)
                         # ----------------------------------------------------------
-                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
-                        detail_area = full_soup.select_one("div.detail_contents_inner")
-
-                        if detail_area:
-                            rows = detail_area.select("tr.info_table_item")
-                            for row in rows:
-                                th = row.select_one("th")
-                                # '매물번호'라고 적힌 행을 찾아서 그 옆의 td 값을 가져옴
-                                if th and "매물번호" in th.get_text():
-                                    td = row.select_one("td")
-                                    if td:
-                                        article_no = td.get_text(strip=True)
-                                        break
+                        article_no = None # 초기화
                         
-                        # [보완] 만약 상세 패널 로딩이 너무 느려서 실패했거나 파싱 못했을 경우
-                        # 일반 매물(Case B)이라면 리스트에 있는 data-attribute라도 가져와본다.
-                        # (네이버에서 보기 매물은 리스트에 번호가 없는 경우가 많으므로 패널 파싱이 필수)
-                        if not article_no and not is_naver_view:
+                        # [핵심] 최대 3회까지 재시도 (0.5초 간격)
+                        # 한 번에 못 찾으면 잠깐 쉬었다가 다시 페이지 소스를 읽어서 찾음
+                        for attempt in range(3):
+                            full_soup = BeautifulSoup(driver.page_source, "html.parser")
+                            detail_area = full_soup.select_one("div.detail_contents_inner")
+
+                            if detail_area:
+                                rows = detail_area.select("tr.info_table_item")
+                                for row in rows:
+                                    th = row.select_one("th")
+                                    # '매물번호' 텍스트 확인
+                                    if th and "매물번호" in th.get_text():
+                                        td = row.select_one("td")
+                                        if td:
+                                            txt = td.get_text(strip=True)
+                                            # 값이 비어있지 않은지 확인
+                                            if txt:
+                                                article_no = txt
+                                                break
+                            
+                            # 찾았으면 루프 탈출
+                            if article_no:
+                                break
+                            
+                            # 못 찾았으면 0.5초 대기 후 재시도
+                            time.sleep(0.5)
+
+                        # ----------------------------------------------------------
+                        # [비상 대책 1] 테이블 파싱 실패 시, 현재 URL 확인
+                        # 상세 화면이 열려있으면 URL에 articleNo=... 가 붙어있을 확률이 높음
+                        # ----------------------------------------------------------
+                        if not article_no:
                             try:
-                                article_no = click_element.get_attribute("data-article-no")
+                                curr_url = driver.current_url
+                                if "articleNo=" in curr_url:
+                                    # URL 파라미터 파싱
+                                    from urllib.parse import urlparse, parse_qs
+                                    parsed = urlparse(curr_url)
+                                    qs = parse_qs(parsed.query)
+                                    if "articleNo" in qs:
+                                        article_no = qs["articleNo"][0]
+                                        print(f"   ⚠️ [복구] 테이블 파싱 실패 -> URL에서 추출 성공 ({article_no})")
                             except: pass
+
+                        # ----------------------------------------------------------
+                        # [비상 대책 2] 그래도 없으면 리스트의 data 속성 확인 (기존 로직)
+                        # ----------------------------------------------------------
+                        if not article_no: 
+                            try:
+                                # click_element 대신 target 사용 (변수명 주의)
+                                # target은 상단 루프의 현재 아이템
+                                link_tag = target.find_element(By.CSS_SELECTOR, "a.item_link") 
+                                article_no = link_tag.get_attribute("data-article-no") 
+                            except: pass
+                            
+                        # full_soup = BeautifulSoup(driver.page_source, "html.parser")
+                        # detail_area = full_soup.select_one("div.detail_contents_inner")
+
+                        # if detail_area:
+                        #     rows = detail_area.select("tr.info_table_item")
+                        #     for row in rows:
+                        #         th = row.select_one("th")
+                        #         # '매물번호'라고 적힌 행을 찾아서 그 옆의 td 값을 가져옴
+                        #         if th and "매물번호" in th.get_text():
+                        #             td = row.select_one("td")
+                        #             if td:
+                        #                 article_no = td.get_text(strip=True)
+                        #                 break
+                        
+                        # # [보완] 만약 상세 패널 로딩이 너무 느려서 실패했거나 파싱 못했을 경우
+                        # # 일반 매물(Case B)이라면 리스트에 있는 data-attribute라도 가져와본다.
+                        # # (네이버에서 보기 매물은 리스트에 번호가 없는 경우가 많으므로 패널 파싱이 필수)
+                        # if not article_no and not is_naver_view:
+                        #     try:
+                        #         article_no = click_element.get_attribute("data-article-no")
+                        #     except: pass
 
                         # ----------------------------------------------------------
                         # 4. 나머지 정보 추출 및 저장
