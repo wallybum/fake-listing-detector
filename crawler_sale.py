@@ -176,6 +176,8 @@ def run_crawler():
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
                         driver.execute_script("arguments[0].click();", link_btn)
 
+                        time.sleep(1.0)
+                        
                         # 2. [핵심] 우측 상세 패널이 로딩될 때까지 대기
                         try:
                             WebDriverWait(driver, 1.5).until(
