@@ -176,27 +176,39 @@ def run_crawler():
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
                         driver.execute_script("arguments[0].click();", link_btn)
 
-                        # 2. [핵심] 화면 로딩을 기다리지 않고, URL에 'articleNo'가 뜰 때까지만 짧게 대기
-                        #    (화면 렌더링보다 URL 변경이 훨씬 빠름)
-                        article_no = "-"
+                        # 2. [핵심] 우측 상세 패널이 로딩될 때까지 대기
                         try:
-                            # 1초 안에 URL이 바뀌면 성공, 아니면 실패 처리 (속도를 위해 짧게 설정)
-                            WebDriverWait(driver, 1).until(lambda d: "articleNo=" in d.current_url)
-                            
-                            # 현재 URL에서 articleNo 파라미터 추출
-                            curr_url = driver.current_url
-                            parsed_url = urlparse(curr_url)
-                            qs = parse_qs(parsed_url.query)
-                            
-                            if "articleNo" in qs:
-                                article_no = qs["articleNo"][0]
-                                
+                            WebDriverWait(driver, 1.5).until(
+                                EC.presence_of_element_located((By.CSS_SELECTOR, "div.detail_contents_inner"))
+                            )
                         except:
-                            # 실패시(URL 안바뀜 등) 로그 찍고 넘어감 (기존 방식처럼 오래 기다리지 않음)
-                            print("   ⚠️ URL 변환 감지 실패, 건너뜀")
+                            print("   ⚠️ 상세 화면 로딩 시간 초과")
                             pass
 
-                        # 3. 리스트 상의 정보 추출 (이건 클릭 안 해도 알 수 있음)
+                        # 3. 상세 영역만 다시 파싱
+                        full_soup = BeautifulSoup(driver.page_source, "html.parser")
+
+                        # 우측 상세 정보 영역 찾기
+                        detail_area = full_soup.select_one("div.detail_contents_inner")
+
+                        article_no = "-"
+
+                        if detail_area:
+                            # '매물번호' 텍스트가 있는 th를 찾고, 그 형제 td를 찾음
+                            # 보내주신 이미지 구조: <tr><th>매물번호</th><td>값</td></tr>
+                            rows = detail_area.select("tr.info_table_item")
+                            for row in rows:
+                                th = row.select_one("th")
+                                if th and "매물번호" in th.get_text():
+                                    td = row.select_one("td")
+                                    if td:
+                                        article_no = td.get_text(strip=True)
+                                        break
+
+                                
+                       
+
+                        # 4. 목록 상의 정보 추출
                         t_html = target.get_attribute('outerHTML')
                         t_soup = BeautifulSoup(t_html, "html.parser")
 
