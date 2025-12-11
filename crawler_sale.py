@@ -249,6 +249,17 @@ def run_crawler():
                         try: price = t_soup.select_one("span.price").get_text(strip=True)
                         except: price = ""
 
+
+                        is_landlord = False
+                        try:
+                            # .icon-badge.type-owner 클래스를 가진 태그 찾기
+                            owner_badge = t_soup.select_one(".icon-badge.type-owner")
+                            if owner_badge and "집주인" in owner_badge.get_text():
+                                is_landlord = True
+                        except:
+                            pass
+
+
                         # 🌟 [검증] 매물번호가 여전히 None이면 저장 건너뛰기
                         if not article_no:
                             print(f"   ❌ 매물번호 추출 실패 (Skip) - {agent_name}")
@@ -259,7 +270,8 @@ def run_crawler():
                         db_data.append({
                             "agent": agent_name, "dong": dong, "spec": spec, "price": price,
                             "article_no": article_no, "trade_type": "매매", 
-                            "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
+                            "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시",
+                            "is_landlord": is_landlord
                         })
 
                     except Exception as e:
