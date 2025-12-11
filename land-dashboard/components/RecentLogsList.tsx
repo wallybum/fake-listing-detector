@@ -2,9 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { 
-  ExternalLink, ArrowDownRight, ArrowUpRight, Clock, Tag, Search, 
+  ArrowUpRight, ArrowDownRight, Clock, Tag, Search, 
   History, ChevronDown, ChevronUp, Activity, RefreshCcw, 
-  MinusCircle, Crown, CheckCircle2, Filter, X
+  MinusCircle, Crown, CheckCircle2, Filter, X,ExternalLink
 } from 'lucide-react';
 import { RealEstateLog } from '../utils/types';
 
@@ -171,14 +171,25 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
       const matchSearch = item.dong.includes(searchTerm) || item.agent.includes(searchTerm) || item.article_no.includes(searchTerm);
       if (!matchSearch) return false;
 
-      if (mainTab === 'active') return item.status === 'active' || item.status === 'new';
+      // [수정] Active 탭에서도 소유자 필터 적용
+      if (mainTab === 'active') {
+          const isActive = item.status === 'active' || item.status === 'new';
+          if (!isActive) return false;
+          
+          if (filterOwner === 'landlord' && !item.is_landlord) return false;
+          if (filterOwner === 'agent' && item.is_landlord) return false;
+          return true;
+      }
+
       if (mainTab === 'deleted') return item.status === 'deleted';
       
       if (mainTab === 'analysis') {
           const hasIssue = item.has_history_change || item.is_relisted;
           if (!hasIssue) return false;
+
           if (filterIssue === 'price' && !item.has_history_change) return false;
           if (filterIssue === 'relist' && !item.is_relisted) return false;
+          
           if (filterOwner === 'landlord' && !item.is_landlord) return false;
           if (filterOwner === 'agent' && item.is_landlord) return false;
           return true;
@@ -187,18 +198,40 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
     });
   }, [analyzedData, mainTab, filterIssue, filterOwner, searchTerm]);
 
+  // [수정] 카운트 로직 세분화 (Active용, Analysis용 별도 계산)
   const counts = useMemo(() => {
+    const activeBase = analyzedData.filter(d => d.status === 'active' || d.status === 'new');
     const analysisBase = analyzedData.filter(d => d.has_history_change || d.is_relisted);
+    const deletedBase = analyzedData.filter(d => d.status === 'deleted');
+
     return {
-        active: analyzedData.filter(d => d.status === 'active' || d.status === 'new').length,
-        deleted: analyzedData.filter(d => d.status === 'deleted').length,
+        // Active 탭 카운트
+        activeTotal: activeBase.length,
+        activeLandlord: activeBase.filter(d => d.is_landlord).length,
+        activeAgent: activeBase.filter(d => !d.is_landlord).length,
+
+        // Analysis 탭 카운트
         analysisTotal: analysisBase.length,
-        cntPrice: analysisBase.filter(d => d.has_history_change).length,
-        cntRelist: analysisBase.filter(d => d.is_relisted).length,
-        cntLandlord: analysisBase.filter(d => d.is_landlord).length,
-        cntAgent: analysisBase.filter(d => !d.is_landlord).length,
+        analysisPrice: analysisBase.filter(d => d.has_history_change).length,
+        analysisRelist: analysisBase.filter(d => d.is_relisted).length,
+        analysisLandlord: analysisBase.filter(d => d.is_landlord).length,
+        analysisAgent: analysisBase.filter(d => !d.is_landlord).length,
+        
+        // Deleted 탭 카운트
+        deletedTotal: deletedBase.length
     };
   }, [analyzedData]);
+
+  // 헬퍼 함수: 현재 탭에 맞는 소유자 카운트 반환
+  const getCurrentOwnerCounts = () => {
+      if (mainTab === 'active') {
+          return { landlord: counts.activeLandlord, agent: counts.activeAgent };
+      }
+      // analysis
+      return { landlord: counts.analysisLandlord, agent: counts.analysisAgent };
+  };
+
+  const ownerCounts = getCurrentOwnerCounts();
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[650px]">
@@ -206,7 +239,7 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
           <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                 <History className="w-5 h-5 text-gray-600"/>
-                매물 생애주기 분석
+                매물 생애주기 분석 (2025년 12월 11일 17:00 부터 수집)
             </h2>
             <div className="relative w-full md:w-64">
                 <input type="text" placeholder="동, 부동산, 번호 검색" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg outline-none focus:border-blue-500"
@@ -216,31 +249,45 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
             </div>
           </div>
           <div className="flex px-4 gap-1 overflow-x-auto no-scrollbar">
-            <button onClick={() => setMainTab('active')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${mainTab === 'active' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏠 현재 등록 매물 ({counts.active})</button>
+            <button onClick={() => setMainTab('active')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${mainTab === 'active' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏠 현재 등록 매물 ({counts.activeTotal})</button>
             <button onClick={() => setMainTab('analysis')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${mainTab === 'analysis' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>📊 변동 분석 ({counts.analysisTotal})</button>
-            <button onClick={() => setMainTab('deleted')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${mainTab === 'deleted' ? 'border-gray-500 text-gray-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🗑️ 삭제된 매물 ({counts.deleted})</button>
+            <button onClick={() => setMainTab('deleted')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${mainTab === 'deleted' ? 'border-gray-500 text-gray-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🗑️ 삭제된 매물 ({counts.deletedTotal})</button>
           </div>
       </div>
 
-      {mainTab === 'analysis' && (
+      {/* [수정] 필터 UI: Active와 Analysis 탭 모두에서 소유자 필터 표시 */}
+      {(mainTab === 'active' || mainTab === 'analysis') && (
           <div className="px-4 py-3 bg-blue-50/50 border-b border-blue-100 flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide">유형</span>
-                  <div className="flex bg-white rounded-lg p-0.5 border border-blue-200">
-                      <button onClick={() => setFilterIssue('all')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'all' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>전체</button>
-                      <button onClick={() => setFilterIssue('price')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'price' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>💰 가격변동 ({counts.cntPrice})</button>
-                      <button onClick={() => setFilterIssue('relist')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'relist' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>♻️ 재등록 ({counts.cntRelist})</button>
-                  </div>
-              </div>
-              <div className="w-px h-6 bg-blue-200 hidden sm:block"></div>
+              
+              {/* 그룹 1: 변동 유형 (Analysis 탭에서만 보임) */}
+              {mainTab === 'analysis' && (
+                  <>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide">유형</span>
+                        <div className="flex bg-white rounded-lg p-0.5 border border-blue-200">
+                            <button onClick={() => setFilterIssue('all')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'all' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>전체</button>
+                            <button onClick={() => setFilterIssue('price')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'price' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>💰 가격변동 ({counts.analysisPrice})</button>
+                            <button onClick={() => setFilterIssue('relist')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterIssue === 'relist' ? 'bg-blue-100 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>♻️ 재등록 ({counts.analysisRelist})</button>
+                        </div>
+                    </div>
+                    <div className="w-px h-6 bg-blue-200 hidden sm:block"></div>
+                  </>
+              )}
+
+              {/* 그룹 2: 소유자 유형 (Active, Analysis 둘 다 보임) */}
               <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wide">소유자</span>
                   <div className="flex bg-white rounded-lg p-0.5 border border-indigo-200">
                       <button onClick={() => setFilterOwner('all')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterOwner === 'all' ? 'bg-indigo-100 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>전체</button>
-                      <button onClick={() => setFilterOwner('landlord')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterOwner === 'landlord' ? 'bg-indigo-100 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>👑 집주인 ({counts.cntLandlord})</button>
-                      <button onClick={() => setFilterOwner('agent')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterOwner === 'agent' ? 'bg-indigo-100 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>🏢 일반 ({counts.cntAgent})</button>
+                      <button onClick={() => setFilterOwner('landlord')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterOwner === 'landlord' ? 'bg-indigo-100 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                          👑 집주인 ({ownerCounts.landlord})
+                      </button>
+                      <button onClick={() => setFilterOwner('agent')} className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${filterOwner === 'agent' ? 'bg-indigo-100 text-indigo-700 font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                          🏢 일반 ({ownerCounts.agent})
+                      </button>
                   </div>
               </div>
+
               {(filterIssue !== 'all' || filterOwner !== 'all') && (
                   <button onClick={() => { setFilterIssue('all'); setFilterOwner('all'); }} className="ml-auto text-[10px] flex items-center gap-1 text-gray-500 hover:text-red-500 transition-colors">
                       <X className="w-3 h-3"/> 초기화
@@ -258,70 +305,28 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
                 <div key={item.article_no} className={`bg-white rounded-lg border shadow-sm overflow-hidden group ${isDead ? 'border-gray-200 opacity-90' : 'border-gray-200'}`}>
                     <div className="p-4 cursor-pointer hover:bg-gray-50 transition-colors relative" onClick={() => toggleExpand(item.article_no)}>
                         
-                        {/* 1. [상단] 상태 태그 라인 (동 이름 위쪽으로 이동됨) */}
+                        {/* 1. [상단] 상태 태그 라인 */}
                         <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                            {/* 집주인 태그 */}
-                            {item.is_landlord && (
-                                <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-700 rounded border border-indigo-200 flex items-center gap-1">
-                                    <Crown className="w-3 h-3"/> 집주인
-                                </span>
-                            )}
-                            {/* 가격 변동 태그 */}
-                            {item.has_history_change && (
-                                <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 rounded border border-purple-200 flex items-center gap-1">
-                                    <Activity className="w-3 h-3"/> 가격변동
-                                </span>
-                            )}
-                            {/* 재등록 태그 */}
-                            {item.is_relisted && (
-                                <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-100 text-orange-700 rounded border border-orange-200 flex items-center gap-1">
-                                    <RefreshCcw className="w-3 h-3"/> 재등록
-                                </span>
-                            )}
-                            {/* 신규 태그 */}
-                            {!item.has_history_change && !item.is_relisted && !item.is_landlord && item.status === 'new' && (
-                                <span className="px-2 py-0.5 text-[10px] font-bold bg-green-500 text-white rounded">
-                                    NEW
-                                </span>
-                            )}
-                            {/* 삭제됨 태그 */}
-                            {item.status === 'deleted' && (
-                                <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-500 text-white rounded flex items-center gap-1">
-                                    <MinusCircle className="w-3 h-3"/> 삭제됨
-                                </span>
-                            )}
+                            {item.is_landlord && <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-700 rounded border border-indigo-200 flex items-center gap-1"><Crown className="w-3 h-3"/> 집주인</span>}
+                            {item.has_history_change && <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 rounded border border-purple-200 flex items-center gap-1"><Activity className="w-3 h-3"/> 가격변동</span>}
+                            {item.is_relisted && <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-100 text-orange-700 rounded border border-orange-200 flex items-center gap-1"><RefreshCcw className="w-3 h-3"/> 재등록</span>}
+                            {!item.has_history_change && !item.is_relisted && !item.is_landlord && item.status === 'new' && <span className="px-2 py-0.5 text-[10px] font-bold bg-green-500 text-white rounded">NEW</span>}
+                            {item.status === 'deleted' && <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-500 text-white rounded flex items-center gap-1"><MinusCircle className="w-3 h-3"/> 삭제됨</span>}
                         </div>
 
                         {/* 2. 메인 컨텐츠 영역 */}
                         <div className="flex flex-col sm:flex-row gap-4">
                             <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                    {/* 순번 표시 */}
                                     <span className="text-lg font-black text-blue-600 mr-1">{index + 1}.</span>
-                                    
-                                    {/* 동 이름 */}
                                     <span className={`text-lg font-bold ${isDead ? 'text-gray-500 line-through decoration-2 decoration-gray-300' : 'text-gray-800'}`}>{item.dong}</span>
                                     <span className="text-xs text-gray-400 bg-gray-100 px-1.5 rounded border border-gray-200">No.{item.article_no}</span>
                                 </div>
                                 <div className="text-sm text-gray-600 mb-2">{item.spec}</div>
-                                
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <div className="text-xs text-blue-600 font-bold flex items-center gap-1">
-                                        <Tag className="w-3 h-3"/> {item.agent}
-                                    </div>
-                                    
-                                    {/* 확인매물 날짜 */}
-                                    {item.verification_date && (
-                                        <div className="text-[10px] text-gray-500 flex items-center gap-1 bg-gray-100 px-1.5 rounded border border-gray-200">
-                                            <CheckCircle2 className="w-3 h-3 text-green-600"/> 
-                                            확인: {item.verification_date}
-                                        </div>
-                                    )}
-
-                                    <span className="text-gray-300 text-[10px] font-normal flex items-center gap-0.5 cursor-pointer hover:text-gray-500">
-                                        {isExpanded ? <ChevronUp className="w-3 h-3"/> : <ChevronDown className="w-3 h-3"/>}
-                                        {isExpanded ? '접기' : '이력'}
-                                    </span>
+                                    <div className="text-xs text-blue-600 font-bold flex items-center gap-1"><Tag className="w-3 h-3"/> {item.agent}</div>
+                                    {item.verification_date && <div className="text-[10px] text-gray-500 flex items-center gap-1 bg-gray-100 px-1.5 rounded border border-gray-200"><CheckCircle2 className="w-3 h-3 text-green-600"/> 확인: {item.verification_date}</div>}
+                                    <span className="text-gray-300 text-[10px] font-normal flex items-center gap-0.5 cursor-pointer hover:text-gray-500">{isExpanded ? <ChevronUp className="w-3 h-3"/> : <ChevronDown className="w-3 h-3"/>}{isExpanded ? '접기' : '이력'}</span>
                                 </div>
                             </div>
                             <div className="sm:text-right min-w-[120px]">
@@ -330,11 +335,7 @@ export default function ListingLifecycleAnalysis({ logs }: Props) {
                                     {item.current_price}
                                     {!isDead && item.price_direction === 'up' && <ArrowUpRight className="w-5 h-5 text-red-500"/>}
                                     {!isDead && item.price_direction === 'down' && <ArrowDownRight className="w-5 h-5 text-blue-500"/>}
-                                   {!isDead && item.price_direction === 'fluctuated' && (
-                                        <span title="변동 후 복귀" className="cursor-help">
-                                            <Activity className="w-5 h-5 text-purple-500"/>
-                                        </span>
-                                    )}
+                                    {!isDead && item.price_direction === 'fluctuated' && <span title="변동 후 복귀" className="cursor-help"><Activity className="w-5 h-5 text-purple-500"/></span>}
                                 </div>
                                 {item.has_history_change && <div className="text-xs text-purple-600 font-medium bg-purple-50 px-1 rounded inline-block mt-1">최초: {item.initial_price}</div>}
                             </div>
