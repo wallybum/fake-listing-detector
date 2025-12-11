@@ -177,7 +177,7 @@ def run_crawler():
                         driver.execute_script("arguments[0].click();", link_btn)
 
                         time.sleep(1.0)
-                        
+
                         # 2. [핵심] 우측 상세 패널이 로딩될 때까지 대기
                         try:
                             WebDriverWait(driver, 1.5).until(
@@ -197,7 +197,6 @@ def run_crawler():
 
                         if detail_area:
                             # '매물번호' 텍스트가 있는 th를 찾고, 그 형제 td를 찾음
-                            # 보내주신 이미지 구조: <tr><th>매물번호</th><td>값</td></tr>
                             rows = detail_area.select("tr.info_table_item")
                             for row in rows:
                                 th = row.select_one("th")
@@ -206,9 +205,6 @@ def run_crawler():
                                     if td:
                                         article_no = td.get_text(strip=True)
                                         break
-
-                                
-                       
 
                         # 4. 목록 상의 정보 추출
                         t_html = target.get_attribute('outerHTML')
@@ -228,8 +224,6 @@ def run_crawler():
                             "crawl_date": TODAY_STR, "crawl_time": f"{HOUR_STR}시"
                         })
                         
-                        # [중요] 불필요한 sleep 제거 (WebDriverWait가 기다려주므로)
-                        # time.sleep(0.3)  <-- 삭제
 
                     except Exception as e:
                         print(f"   ❌ 에러: {e}")
