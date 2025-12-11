@@ -66,7 +66,7 @@ export default function Dashboard() {
         .gte('crawl_date', startDate)
         .lte('crawl_date', endDate)
         .order('id', { ascending: false })
-        .limit(200);
+        .limit(2000000);
       
       const { data: listData } = await listQuery;
 
