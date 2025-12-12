@@ -92,7 +92,7 @@ export default function AgentChartSection({ rawStats, loading, startDate, endDat
     <div className="mb-8">
         <div className="flex justify-between items-end mb-3 px-1">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-blue-600"/> 부동산별 추이
+                <Building2 className="w-5 h-5 text-blue-600"/> 부동산별 추이(2025-12-11 17시 부터 수집)
             </h2>
             <div className="relative" ref={dropdownRef}>
                 <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700">

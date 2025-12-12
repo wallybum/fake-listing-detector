@@ -91,7 +91,7 @@ export default function DongChartSection({ rawStats, loading, startDate, endDate
     <div className="mb-10">
         <div className="flex justify-between items-end mb-3 px-1">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <MapPin className="w-5 h-5 text-green-600"/> 동(Dong)별 추이
+                <MapPin className="w-5 h-5 text-green-600"/> 동별 추이(2025-12-11 17시 부터 수집)
             </h2>
             <div className="relative" ref={dropdownRef}>
                 <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700">
