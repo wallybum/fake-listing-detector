@@ -5,7 +5,7 @@ import { LayoutDashboard } from "lucide-react";
 
 // supabase 및 타입 불러오기
 import { supabase } from "../utils/supabaseClient";
-import { StatData, RealEstateLog } from "../utils/types"; // [복구] RealEstateLog 타입 필요
+import { StatData, RealEstateLog } from "../utils/types";
 
 // 컴포넌트 불러오기
 import FilterControls from "../components/FilterControls";
@@ -21,13 +21,11 @@ export default function Dashboard() {
   const [endHour, setEndHour] = useState<string>("23");
   const [tradeType, setTradeType] = useState<string>("매매");
 
-  // [복구됨] 차트(AgentChartSection)를 그리기 위해 원본 로그 데이터가 필요합니다.
   const [logs, setLogs] = useState<RealEstateLog[]>([]);
-
-  // 동별 차트는 아직 통계 데이터(RPC)를 사용한다면 유지
-  const [rawDongStats, setRawDongStats] = useState<StatData[]>([]);
-
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // [수정 1] 최초 수집 시간 State 추가
+  const [firstUpdated, setFirstUpdated] = useState<string>(""); 
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   // 1. 초기화 (오늘 날짜 세팅)
@@ -35,7 +33,9 @@ export default function Dashboard() {
     const today = new Date().toISOString().split("T")[0];
     setStartDate(today);
     setEndDate(today);
-    fetchLastCrawlTime();
+    
+    // [수정 2] 시간 조회 함수 호출 변경
+    fetchCrawlMetadata(); 
   }, []);
 
   // 2. 날짜 변경 시 데이터 조회
@@ -45,55 +45,62 @@ export default function Dashboard() {
     }
   }, [startDate, endDate]);
 
-  const fetchLastCrawlTime = async () => {
+  // [수정 3] 최초 시간과 마지막 시간을 함께 조회하는 함수로 변경
+ const fetchCrawlMetadata = async () => {
     try {
-      const { data } = await supabase
+      // 1. 마지막 수집 시간 조회 (maybeSingle 사용)
+      const { data: lastData, error: lastError } = await supabase
         .from("real_estate_logs")
         .select("crawl_date, crawl_time")
-        .order("id", { ascending: false })
+        .order("id", { ascending: false }) // 최신순
         .limit(1)
-        .single();
-      if (data) setLastUpdated(`${data.crawl_date} ${data.crawl_time}`);
+        .maybeSingle(); // single() 대신 maybeSingle()을 써야 데이터가 없어도 에러가 안 납니다.
+
+      if (lastError) {
+        console.error("Last Crawl Fetch Error:", lastError);
+      } else if (lastData) {
+        setLastUpdated(`${lastData.crawl_date} ${lastData.crawl_time}`);
+      }
+
+      // 2. 최초 수집 시간 조회
+      const { data: firstData, error: firstError } = await supabase
+        .from("real_estate_logs")
+        .select("crawl_date, crawl_time")
+        .order("id", { ascending: true }) // 과거순
+        .limit(1)
+        .maybeSingle();
+
+      if (firstError) {
+        console.error("First Crawl Fetch Error:", firstError);
+      } else if (firstData) {
+        setFirstUpdated(`${firstData.crawl_date} ${firstData.crawl_time}`);
+      }
+
     } catch (e) {
-      console.error(e);
+      console.error("Metadata Fetch Critical Error:", e);
     }
   };
 
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // ----------------------------------------------------------------
-      // [복구 및 수정] 차트용 원본 로그 조회
-      // ----------------------------------------------------------------
       let query = supabase
         .from("real_estate_logs")
         .select("*")
         .gte("crawl_date", startDate)
         .lte("crawl_date", endDate)
-        .order("id", { ascending: true }); // 차트 그리기 좋게 시간순 정렬 권장
+        .order("id", { ascending: true });
 
       if (tradeType !== "all") {
         query = query.eq("trade_type", tradeType);
       }
-
-      // 대량 데이터 조회 시 성능 고려 (필요시 limit 조절)
-      // query = query.limit(10000);
 
       const { data: logData, error: logError } = await query;
 
       if (logError) throw logError;
       if (logData) setLogs(logData as RealEstateLog[]);
 
-      // ----------------------------------------------------------------
-      // 동별 통계 (아직 RPC를 사용한다면 유지, 이것도 로그 기반으로 바꿀거면 삭제 가능)
-      // ----------------------------------------------------------------
-      const { data: dongStats, error: dongError } = await supabase.rpc(
-        "get_dong_stats",
-        { start_d: startDate, end_d: endDate, trade_t: tradeType }
-      );
-
-      if (dongError) console.error("Dong RPC Error:", dongError);
-      if (dongStats) setRawDongStats(dongStats);
+      // (동별 통계 로직 생략...)
     } catch (error) {
       console.error("Fetch Error:", error);
     } finally {
@@ -111,14 +118,20 @@ export default function Dashboard() {
             DMC 파크뷰자이 매물 현황판
           </h1>
           
-          {/* text-right div 제거하고 바로 배지 배치 */}
-          <div className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-500 border border-gray-200 self-start md:self-auto">
-              Last Updated: {lastUpdated || "-"}
-          </div>
+           <div className="flex flex-col md:flex-row gap-2 md:items-center">
+               {/* [수정 4] 최초 수집 시간 표시 */}
+               <div className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-500 border border-gray-200 self-start md:self-auto">
+                  최초 수집: {firstUpdated || "-"}
+              </div>
+
+              {/* 마지막 수집 시간 표시 */}
+              <div className="px-3 py-1 bg-blue-50 rounded-full text-xs font-medium text-blue-600 border border-blue-100 self-start md:self-auto">
+                  최근 수집: {lastUpdated || "-"}
+              </div>
+           </div>
         
         </div>
 
-        {/* 1. 필터 컨트롤러 영역 */}
         <FilterControls
           startDate={startDate}
           setStartDate={setStartDate}
@@ -133,7 +146,6 @@ export default function Dashboard() {
           onSearch={fetchAllData}
         />
 
-        {/* 2. 차트 영역 A: 부동산 (이제 logs를 받음) */}
         <AgentChartSection
           logs={logs}
           loading={loading}
@@ -141,14 +153,11 @@ export default function Dashboard() {
           endHour={endHour}
         />
 
-        {/* 3. 차트 영역 B: 동 (아직 RPC 통계 사용 중) */}
-        {/* 만약 동 차트도 로그 기반으로 바꿨다면 logs={logs}로 넘겨줘야 함 */}
         <DongChartSection
-          logs={logs} // [중요] rawStats 대신 logs 전달
+          logs={logs}
           loading={loading}
         />
 
-        {/* 4. 하단 리스트 (독립적 데이터 로딩) */}
         <ListingLifecycleAnalysis />
       </div>
     </div>
