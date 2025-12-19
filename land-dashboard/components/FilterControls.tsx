@@ -56,55 +56,93 @@ export default function FilterControls({
   };
 
   return (
-    /* 컨트롤러 */
-    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm mb-8 flex flex-wrap gap-6 items-end">
-       {/* 거래 유형 */}
-       <div className="flex flex-col gap-2">
-         <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><Repeat className="w-3 h-3"/> 거래 유형</label>
-         <div className="relative">
-            <select value={tradeType} onChange={(e) => setTradeType(e.target.value)} className="appearance-none w-28 bg-blue-50 text-blue-700 font-bold px-4 py-2.5 rounded-lg border border-blue-200 text-sm focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                <option value="매매">매매</option>
-                <option value="전세">전세</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
-        </div>
-       </div>
-       
-        {/* 날짜 */}
-       <div className="flex flex-col gap-2">
-        <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><CalendarIcon className="w-3 h-3"/> 조회 기간</label>
-        <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-          <input 
-            type="date" 
-            value={startDate} 
-            // [수정됨] 핸들러 연결
-            onChange={(e) => handleDateChange("start", e.target.value)} 
-            className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium"
-          />
-          <span className="text-gray-400">~</span>
-          <input 
-            type="date" 
-            value={endDate} 
-            // [수정됨] 핸들러 연결
-            onChange={(e) => handleDateChange("end", e.target.value)} 
-            className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium"
-          />
-        </div>
-       </div>
-       
-        {/* 시간 */}
-       <div className="flex flex-col gap-2">
-        <label className="text-xs font-bold text-gray-500 flex items-center gap-1"><Clock className="w-3 h-3"/> 시간대</label>
-        <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-          <select value={startHour} onChange={(e) => setStartHour(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium">{HOURS.map(h => <option key={h} value={h}>{h}시</option>)}</select>
-          <span className="text-gray-400">~</span>
-          <select value={endHour} onChange={(e) => setEndHour(e.target.value)} className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium">{HOURS.map(h => <option key={h} value={h}>{h}시</option>)}</select>
-        </div>
-       </div>
-
-       <button onClick={onSearch} className="ml-auto flex items-center gap-2 px-6 py-2.5 bg-gray-900 hover:bg-black text-white rounded-lg text-sm font-bold transition-all shadow-md active:scale-95">
-         <Search className="w-4 h-4" /> 데이터 조회
-       </button>
+  /* 컨트롤러 컨테이너 */
+  <div className="bg-white p-4 md:p-5 rounded-xl border border-gray-200 shadow-sm mb-8 flex flex-col lg:flex-row lg:items-end gap-4 lg:gap-6">
+    
+    {/* 1. 거래 유형 */}
+    {/* 모바일: 너비 꽉 채움 (w-full) / PC: 내용물만큼만 (lg:w-auto) */}
+    <div className="flex flex-col gap-2 w-full lg:w-auto">
+      <label className="text-xs font-bold text-gray-500 flex items-center gap-1">
+        <Repeat className="w-3 h-3" /> 거래 유형
+      </label>
+      <div className="relative w-full">
+        <select
+          value={tradeType}
+          onChange={(e) => setTradeType(e.target.value)}
+          className="appearance-none w-full lg:w-32 bg-blue-50 text-blue-700 font-bold px-4 py-2.5 rounded-lg border border-blue-200 text-sm focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        >
+          <option value="매매">매매</option>
+          <option value="전세">전세</option>
+        </select>
+        <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
+      </div>
     </div>
-  );
+
+    {/* 2. 조회 기간 */}
+    <div className="flex flex-col gap-2 w-full lg:w-auto">
+      <label className="text-xs font-bold text-gray-500 flex items-center gap-1">
+        <CalendarIcon className="w-3 h-3" /> 조회 기간
+      </label>
+      <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 w-full">
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => handleDateChange("start", e.target.value)}
+          className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium w-full min-w-0" 
+        />
+        <span className="text-gray-400">~</span>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => handleDateChange("end", e.target.value)}
+          className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium w-full min-w-0"
+        />
+      </div>
+    </div>
+
+    {/* 3. 시간대 */}
+    <div className="flex flex-col gap-2 w-full lg:w-auto">
+      <label className="text-xs font-bold text-gray-500 flex items-center gap-1">
+        <Clock className="w-3 h-3" /> 시간대
+      </label>
+      <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 w-full">
+        <select
+          value={startHour}
+          onChange={(e) => setStartHour(e.target.value)}
+          className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium w-full"
+        >
+          {HOURS.map((h) => (
+            <option key={h} value={h}>
+              {h}시
+            </option>
+          ))}
+        </select>
+        <span className="text-gray-400">~</span>
+        <select
+          value={endHour}
+          onChange={(e) => setEndHour(e.target.value)}
+          className="text-sm bg-transparent outline-none cursor-pointer text-gray-900 font-medium w-full"
+        >
+          {HOURS.map((h) => (
+            <option key={h} value={h}>
+              {h}시
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+
+    {/* 4. 조회 버튼 */}
+    {/* 모바일: 맨 아래 꽉 채움 / PC: 우측 끝으로 밀기 (lg:ml-auto) */}
+    <div className="w-full lg:w-auto lg:ml-auto mt-2 lg:mt-0">
+      <button
+        onClick={onSearch}
+        className="w-full lg:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-gray-900 hover:bg-black text-white rounded-lg text-sm font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"
+      >
+        <Search className="w-4 h-4" /> 데이터 조회
+      </button>
+    </div>
+    
+  </div>
+);
 }

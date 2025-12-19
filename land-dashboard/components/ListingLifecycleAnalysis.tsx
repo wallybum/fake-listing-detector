@@ -652,13 +652,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[700px]">
       <div className="bg-gray-50 border-b border-gray-200 p-4 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-            <History className="w-5 h-5 text-gray-600" />
-            {loading && (
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-            )}
-          </h2>
-
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 p-1 px-2">
                <Filter className="w-3.5 h-3.5 text-gray-500" />
