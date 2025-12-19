@@ -67,17 +67,21 @@ export default function ListingLifecycleAnalysis({}: Props) {
     "active"
   );
 
+  // ▼▼▼ [수정 1] 날짜 초기화 로직 변경 (기본값: 오늘 하루) ▼▼▼
+  
+  // 1. 시스템 수집 시작일 상수 (이 날짜 이전으로는 조회 불가하게 막음)
+  const SYSTEM_LAUNCH_DATE = "2025-12-19";
+
   const todayObj = new Date();
   const today = todayObj.toISOString().split("T")[0];
 
-  const oneMonthAgoObj = new Date();
-  oneMonthAgoObj.setMonth(todayObj.getMonth() - 1);
-  const oneMonthAgo = oneMonthAgoObj.toISOString().split("T")[0];
-
-  const [localTradeType, setLocalTradeType] = useState<"all" | "매매" | "전세">("all");
-  const [localStartDate, setLocalStartDate] = useState(oneMonthAgo);
+  // 2. 시작일과 종료일을 모두 '오늘'로 설정 -> 로드 시 오늘 데이터만 표시
+  const [localStartDate, setLocalStartDate] = useState(today);
   const [localEndDate, setLocalEndDate] = useState(today);
   
+  // -----------------------------------------------------------
+
+  const [localTradeType, setLocalTradeType] = useState<"all" | "매매" | "전세">("all");
   const [filterProvider, setFilterProvider] = useState<string>("all");
 
   const [filterIssue, setFilterIssue] = useState<"all" | "price" | "relist">("all");
@@ -102,6 +106,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
        return;
     }
 
+    // (선택사항) 오늘만 보기 모드이므로 1개월 제한은 풀어줘도 되지만, 
+    // 데이터 양이 많아질 것을 대비해 제한을 유지하는 것도 좋습니다. 여기선 유지했습니다.
     const oneMonthLimit = new Date(newStart);
     oneMonthLimit.setMonth(oneMonthLimit.getMonth() + 1);
 
@@ -689,6 +695,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <input
                 type="date"
                 value={localStartDate}
+                // ▼▼▼ [수정 2] min 속성 추가: 런칭일 이전은 선택 불가 처리
+                min={SYSTEM_LAUNCH_DATE} 
                 onChange={(e) => handleDateChange("start", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
               />
@@ -696,6 +704,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <input
                 type="date"
                 value={localEndDate}
+                // ▼▼▼ [수정 2] min 속성 추가
+                min={SYSTEM_LAUNCH_DATE}
                 onChange={(e) => handleDateChange("end", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
               />
