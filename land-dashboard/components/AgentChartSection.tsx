@@ -87,19 +87,16 @@ export default function AgentChartSection({
       return;
     }
 
-    // (1) 선택된 시간대(Start ~ End)에 맞는 로그만 필터링
     const sHour = parseInt(startHour, 10);
     const eHour = parseInt(endHour, 10);
 
     const filteredLogs = logs.filter((log) => {
-      // crawl_time 형식: "16:47" 또는 "16시" 등
       let h = 0;
       if (log.crawl_time.includes(":")) {
         h = parseInt(log.crawl_time.split(":")[0], 10);
       } else {
         h = parseInt(log.crawl_time.replace(/[^0-9]/g, ""), 10);
       }
-      // 시작시간 이상, 종료시간 이하인 것만 통과
       return h >= sHour && h <= eHour;
     });
 
@@ -108,23 +105,31 @@ export default function AgentChartSection({
       return;
     }
 
-    // (2) 필터링된 로그(filteredLogs)를 기준으로 X축 생성
     const timeSet = new Set<string>();
     filteredLogs.forEach((log) => {
       timeSet.add(`${log.crawl_date} ${log.crawl_time}`);
     });
 
-    const labels = Array.from(timeSet).sort((a, b) => {
-      return new Date(a).getTime() - new Date(b).getTime();
+    const sortedFullKeys = Array.from(timeSet).sort((a, b) => {
+        return new Date(a).getTime() - new Date(b).getTime();
     });
 
-    // (3) 데이터셋 생성 (filteredLogs 기준 카운팅)
+    const uniqueDates = new Set(filteredLogs.map(l => l.crawl_date));
+    const isSameDay = uniqueDates.size === 1;
+
+    const labels = sortedFullKeys.map(fullKey => {
+        if (isSameDay) {
+            return fullKey.split(" ")[1]; 
+        } else {
+            return fullKey.slice(5);
+        }
+    });
+
     const datasets = selectedAgents.map((agent, index) => {
       const color = COLORS[index % COLORS.length] || "#000000";
 
-      const data = labels.map((label) => {
-        const [dDate, dTime] = label.split(" ");
-        // 여기서도 filteredLogs 안에서 찾아야 정확함
+      const data = sortedFullKeys.map((fullKey) => {
+        const [dDate, dTime] = fullKey.split(" ");
         return filteredLogs.filter(
           (l) =>
             l.crawl_date === dDate &&
@@ -141,13 +146,14 @@ export default function AgentChartSection({
         tension: 0.3,
         pointRadius: 2,
         pointHoverRadius: 5,
+        borderWidth: 1.5,
         spanGaps: true,
         hidden: hiddenAgents.has(agent),
       };
     });
 
     setChartData({ labels, datasets });
-  }, [selectedAgents, logs, hiddenAgents, startHour, endHour]); // 의존성 배열에 startHour, endHour 추가
+  }, [selectedAgents, logs, hiddenAgents, startHour, endHour]);
 
   const toggleAgent = (agent: string) => {
     if (selectedAgents.includes(agent))
@@ -168,34 +174,48 @@ export default function AgentChartSection({
     setHiddenAgents(newHidden);
   };
 
+  // --- [수정됨] 내가 찍은 그 점만 나오게 설정 ---
   const updatedChartOptions = useMemo<ChartOptions<"line">>(() => {
     const baseOptions = (commonChartOptions || {}) as any;
     return {
       ...baseOptions,
       maintainAspectRatio: false,
-      // 모바일 터치 및 호버 동작 개선 설정
+      
+      // ★ 상호작용 설정 수정
       interaction: {
-        mode: 'nearest',    // [중요] 터치한 곳에서 가장 가까운 '점 하나'만 표시
-        intersect: false,   // 점을 정확히 안 눌러도 근처면 인식 (모바일 필수)
-        // axis: 'x',          // X축(시간) 기준으로 가장 가까운 점을 찾음
+        mode: 'nearest',   // 가장 가까운 점 찾기
+        intersect: false,  // 점 위에 정확히 없어도 됨 (근처면 인식)
+        axis: 'xy',        // [핵심] X축(시간)과 Y축(높이) 거리를 모두 계산해서 가장 가까운 1개만 찾음
       },
 
       plugins: {
         ...baseOptions.plugins,
         legend: { display: false },
 
-       tooltip: {
-            ...baseOptions.plugins?.tooltip,
+        // ★ 툴팁 설정 수정
+        tooltip: {
             enabled: true,
-            mode: 'nearest',   // 툴팁도 'nearest' 모드로
+            mode: 'nearest', 
             intersect: false,
+            
+            // [삭제됨] itemSort와 filter 삭제 -> 거리순 1등(내가 찍은 것)이 자연스럽게 나옴
+            
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            padding: 10,
+            titleFont: { size: 13 },
+            bodyFont: { size: 13 },
+            displayColors: true, 
         }
       },
       scales: {
         ...baseOptions.scales,
+        y: {
+            beginAtZero: true,
+            ticks: { precision: 0 }
+        },
         x: {
           ...baseOptions.scales?.x,
-          ticks: { autoSkip: true, maxTicksLimit: 8 },
+          ticks: { autoSkip: true, maxTicksLimit: 6 },
         },
       },
     };
@@ -203,6 +223,7 @@ export default function AgentChartSection({
 
   return (
     <div className="mb-8">
+      {/* 헤더 */}
       <div className="flex justify-between items-end mb-3 px-1">
         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
           <Building2 className="w-5 h-5 text-blue-600" /> 부동산별 추이
@@ -210,7 +231,7 @@ export default function AgentChartSection({
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700"
+            className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-900"
           >
             {selectedAgents.length === agentOptions.length
               ? "전체 부동산 선택됨"
@@ -253,23 +274,19 @@ export default function AgentChartSection({
           )}
         </div>
       </div>
-      {/* 차트 + 커스텀 범례 영역 */}
-      {/* 1. 컨테이너: 모바일(flex-col/높이자동) -> PC(md:flex-row/높이350px고정) */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-auto md:h-[350px] flex flex-col md:flex-row gap-4">
+
+      {/* 차트 영역 */}
+      <div className="bg-white p-2 md:p-5 rounded-xl shadow-sm border border-gray-200 h-auto md:h-[350px] flex flex-col md:flex-row gap-4">
         {loading ? (
           <div className="w-full h-[300px] flex items-center justify-center text-gray-400 gap-2">
             데이터를 분석하고 있습니다...
           </div>
         ) : chartData && chartData.datasets.length > 0 ? (
           <>
-            {/* 2. 차트 영역: 모바일(높이 250px) -> PC(높이 꽉 채움, flex-1) */}
             <div className="w-full h-[250px] md:h-full md:flex-1 relative min-w-0">
               <Line options={updatedChartOptions} data={chartData} />
             </div>
 
-            {/* 3. 범례 영역: */}
-            {/* 모바일: w-full, 높이 제한(100px), 2열 그리드(grid-cols-2) */}
-            {/* PC(md): w-56, 높이 꽉 채움, 1열(flex-col) */}
             <div className="w-full md:w-56 h-[100px] md:h-full pl-1 overflow-y-auto custom-scrollbar grid grid-cols-2 content-start gap-2 md:flex md:flex-col md:gap-1.5 pr-1 border-t md:border-t-0 pt-2 md:pt-0 border-gray-100">
               {chartData.datasets.map((dataset) => {
                 const isHidden = hiddenAgents.has(dataset.label as string);
