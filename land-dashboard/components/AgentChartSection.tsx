@@ -197,14 +197,25 @@ export default function AgentChartSection({
             enabled: true,
             mode: 'nearest', 
             intersect: false,
-            
-            // [삭제됨] itemSort와 filter 삭제 -> 거리순 1등(내가 찍은 것)이 자연스럽게 나옴
-            
+           
             backgroundColor: 'rgba(0, 0, 0, 0.9)',
             padding: 10,
             titleFont: { size: 13 },
             bodyFont: { size: 13 },
             displayColors: true, 
+
+            callbacks: {
+                label: function(context) {
+                    let label = context.dataset.label || '';
+                    if (label) {
+                        label += ': ';
+                    }
+                    if (context.parsed.y !== null) {
+                        label += context.parsed.y + ' 건'; // 예: "101동: 5 건"
+                    }
+                    return label;
+                }
+            }
         }
       },
       scales: {

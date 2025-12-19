@@ -160,6 +160,19 @@ export default function DongChartSection({ logs, loading }: Props) {
             titleFont: { size: 13 },
             bodyFont: { size: 13 },
             displayColors: true,
+
+            callbacks: {
+                label: function(context) {
+                    let label = context.dataset.label || '';
+                    if (label) {
+                        label += ': ';
+                    }
+                    if (context.parsed.y !== null) {
+                        label += context.parsed.y + ' 건'; // 예: "101동: 5 건"
+                    }
+                    return label;
+                }
+            }
         }
       },
       scales: {
