@@ -20,6 +20,7 @@ import {
   ArrowDownRight,
   Layers,
   Loader2,
+  Filter,
 } from "lucide-react";
 import { supabase } from "../utils/supabaseClient";
 import { RealEstateLog } from "../utils/types";
@@ -53,8 +54,7 @@ interface AnalyzedListing {
   last_seen: string;
   status: "active" | "deleted" | "new";
   display_timeline: TimelineItem[];
-  // [수정 1] "string" 리터럴 타입이 아니라 string 타입으로 변경
-  provider: string; 
+  provider: string;
 }
 
 export default function ListingLifecycleAnalysis({}: Props) {
@@ -74,18 +74,14 @@ export default function ListingLifecycleAnalysis({}: Props) {
   oneMonthAgoObj.setMonth(todayObj.getMonth() - 1);
   const oneMonthAgo = oneMonthAgoObj.toISOString().split("T")[0];
 
-  const [localTradeType, setLocalTradeType] = useState<"all" | "매매" | "전세">(
-    "all"
-  );
+  const [localTradeType, setLocalTradeType] = useState<"all" | "매매" | "전세">("all");
   const [localStartDate, setLocalStartDate] = useState(oneMonthAgo);
   const [localEndDate, setLocalEndDate] = useState(today);
+  
+  const [filterProvider, setFilterProvider] = useState<string>("all");
 
-  const [filterIssue, setFilterIssue] = useState<"all" | "price" | "relist">(
-    "all"
-  );
-  const [filterOwner, setFilterOwner] = useState<"all" | "landlord" | "agent">(
-    "all"
-  );
+  const [filterIssue, setFilterIssue] = useState<"all" | "price" | "relist">("all");
+  const [filterOwner, setFilterOwner] = useState<"all" | "landlord" | "agent">("all");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
@@ -280,17 +276,13 @@ export default function ListingLifecycleAnalysis({}: Props) {
           
           validTimeline = relevantHistory.filter((curr, idx) => {
               if (idx === 0) return true;
-
               const prev = relevantHistory[idx - 1];
-
               if (curr.status !== prev.status) return true;
-
               if (curr.status === 'collected' && prev.status === 'collected') {
                   const p1 = normalizePrice(curr.price || "");
                   const p2 = normalizePrice(prev.price || "");
                   return p1 !== p2;
               }
-
               return false;
           });
 
@@ -323,13 +315,18 @@ export default function ListingLifecycleAnalysis({}: Props) {
         last_seen: `${lastItem.crawl_date} ${lastItem.crawl_time}`,
         status,
         display_timeline: validTimeline,
-        // [수정 2] provider 값 매핑 (DB 컬럼이 provider라고 가정)
         provider: lastItem.provider || "알수없음",
       };
     });
 
     return analyzed.sort((a, b) => b.last_seen.localeCompare(a.last_seen));
   }, [logs, allTimeLogs, searchTerm]);
+
+  const providerOptions = useMemo(() => {
+    const providers = new Set(analyzedData.map(item => item.provider));
+    return Array.from(providers).sort();
+  }, [analyzedData]);
+
 
   const filteredData = useMemo(() => {
     const term = searchTerm.trim();
@@ -342,6 +339,10 @@ export default function ListingLifecycleAnalysis({}: Props) {
         (item.agent || "").includes(term);
 
       if (!matchSearch) return false;
+
+      if (filterProvider !== "all" && item.provider !== filterProvider) {
+          return false;
+      }
 
       if (mainTab === "active") {
         const isActive = item.status === "active" || item.status === "new";
@@ -372,7 +373,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
       
       return false;
     });
-  }, [analyzedData, mainTab, filterIssue, filterOwner, searchTerm]);
+  }, [analyzedData, mainTab, filterIssue, filterOwner, searchTerm, filterProvider]);
 
   const counts = useMemo(() => {
     const baseData = analyzedData;
@@ -422,7 +423,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
   } else if (filteredData.length === 0) {
     listContent = (
       <div className="flex items-center justify-center h-full text-gray-400">
-        <p>해당 기간에 조회된 데이터가 없습니다.</p>
+        <p>해당 조건에 맞는 데이터가 없습니다.</p>
       </div>
     );
   } else {
@@ -644,9 +645,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[700px]">
       <div className="bg-gray-50 border-b border-gray-200 p-4 space-y-4">
-        {/* ... (생략된 헤더 및 필터 부분은 동일) ... */}
-        {/* 날짜 선택 및 검색 영역은 위에서 이미 text-gray-900으로 수정되어 있다고 가정하거나 
-            필요시 추가 수정할 수 있습니다. 위 코드는 provider 표시가 핵심입니다. */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
             <History className="w-5 h-5 text-gray-600" />
@@ -656,6 +654,20 @@ export default function ListingLifecycleAnalysis({}: Props) {
           </h2>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 p-1 px-2">
+               <Filter className="w-3.5 h-3.5 text-gray-500" />
+               <select
+                 value={filterProvider}
+                 onChange={(e) => setFilterProvider(e.target.value)}
+                 className="text-xs bg-transparent outline-none font-bold w-[120px] cursor-pointer text-gray-900"
+               >
+                 <option value="all">전체 CP</option>
+                 {providerOptions.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                 ))}
+               </select>
+            </div>
+
             <div className="flex bg-white rounded-lg p-0.5 border border-gray-300">
               {["all", "매매", "전세"].map((type) => (
                 <button
