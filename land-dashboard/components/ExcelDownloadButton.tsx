@@ -4,7 +4,6 @@ import React from "react";
 import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
 
-// 조회 조건 타입 정의
 interface SearchConditions {
   startDate: string;
   endDate: string;
@@ -16,7 +15,7 @@ interface SearchConditions {
 
 interface Props {
   data: any[];
-  conditions: SearchConditions; // [추가] 조회 조건 객체
+  conditions: SearchConditions;
   fileName?: string;
 }
 
@@ -32,17 +31,16 @@ export default function ExcelDownloadButton({
       return;
     }
 
-    // 1. 엑셀 상단에 적을 '조회 조건' 정보 구성 (행 단위 배열)
-    // A열: 항목명, B열: 값
+    // 1. 엑셀 상단에 적을 '조회 조건' (A1부터 시작될 내용)
     const headerRows = [
-      ["[ DMC 파크뷰자이 매물 분석 보고서 ]"], // 제목
-      [""], // 빈 줄
+      ["[ DMC 파크뷰자이 매물 분석 보고서 ]"], 
+      [""], 
       ["조회 기간", `${conditions.startDate} ~ ${conditions.endDate}`],
       ["거래 유형", conditions.tradeType === 'all' ? '전체' : conditions.tradeType],
       ["조회 시간대", `${conditions.startHour}시 ~ ${conditions.endHour}시`],
       ["제공처 필터", conditions.provider === 'all' ? '전체' : conditions.provider],
       ["다운로드 일시", new Date().toLocaleString()],
-      [""], // 빈 줄 (데이터와 구분)
+      [""], 
     ];
 
     // 2. 실제 데이터 포맷팅
@@ -63,17 +61,19 @@ export default function ExcelDownloadButton({
       "네이버링크": `https://new.land.naver.com/complexes/108064?articleNo=${item.article_no}`
     }));
 
-    // 3. 워크시트 생성 (데이터 없이 빈 시트 먼저 생성 가능하지만, 유틸리티 사용이 편함)
-    const worksheet = XLSX.utils.book_new().Sheets["Sheet1"]; // 가상의 워크북
+    // [수정된 핵심 로직]
+    // 3. 먼저 '조회 조건(headerRows)'으로 시트를 생성합니다. (A1부터 자동 작성됨)
+    // aoa_to_sheet는 배열의 배열을 시트로 만들어줍니다.
+    const finalWorksheet = XLSX.utils.aoa_to_sheet(headerRows);
 
-    // 4. (중요) 데이터를 먼저 시트로 변환하되, 'origin' 옵션으로 시작 위치를 지정합니다.
-    // 헤더가 8줄 정도 되므로 A9 셀부터 데이터를 시작합니다.
-    const finalWorksheet = XLSX.utils.json_to_sheet(formattedData, { origin: "A9" });
+    // 4. 생성된 시트에 '실제 데이터(formattedData)'를 추가합니다.
+    // sheet_add_json은 'origin' 옵션을 타입 에러 없이 지원합니다. (A9부터 시작)
+    XLSX.utils.sheet_add_json(finalWorksheet, formattedData, { 
+      origin: "A9", 
+      skipHeader: false // 데이터의 헤더(수집일시, 매물번호 등)도 포함
+    });
 
-    // 5. 상단에 조회 조건(Header Rows) 추가 (A1부터 시작)
-    XLSX.utils.sheet_add_aoa(finalWorksheet, headerRows, { origin: "A1" });
-
-    // 6. 컬럼 너비 조정
+    // 5. 컬럼 너비 조정
     const wscols = [
       { wch: 20 }, // 수집일시
       { wch: 15 }, // 매물번호
@@ -92,7 +92,7 @@ export default function ExcelDownloadButton({
     ];
     finalWorksheet["!cols"] = wscols;
 
-    // 7. 워크북 생성 및 저장
+    // 6. 워크북 생성 및 저장
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, finalWorksheet, "분석결과");
 
