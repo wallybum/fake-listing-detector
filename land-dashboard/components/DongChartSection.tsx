@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import { MapPin, ChevronDown } from 'lucide-react';
-import { RealEstateLog } from '../utils/types'; // StatData 대신 RealEstateLog 사용
+import { RealEstateLog } from '../utils/types';
 import { COLORS, commonChartOptions } from '../utils/chartUtils';
 import {
   Chart as ChartJS,
@@ -21,7 +21,7 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 interface Props {
-  logs: RealEstateLog[]; // rawStats 대신 logs를 받음
+  logs: RealEstateLog[];
   loading: boolean;
 }
 
@@ -32,7 +32,6 @@ export default function DongChartSection({ logs, loading }: Props) {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
-  // [추가] 범례 숨김 토글 상태
   const [hiddenDongs, setHiddenDongs] = useState<Set<string>>(new Set());
 
   // 1. 드롭다운 외부 클릭 감지
@@ -61,32 +60,27 @@ export default function DongChartSection({ logs, loading }: Props) {
     }
   }, [logs]);
 
-  // 3. 차트 데이터 생성 (시간 분 단위까지 고려)
+  // 3. 차트 데이터 생성
   useEffect(() => {
     if (!logs || logs.length === 0) {
         setChartData(null);
         return;
     }
 
-    // (1) X축 라벨 생성 (전체 로그의 유니크한 시간대)
     const timeSet = new Set<string>();
     logs.forEach(log => {
         timeSet.add(`${log.crawl_date} ${log.crawl_time}`);
     });
     
-    // 시간순 정렬
     const labels = Array.from(timeSet).sort((a, b) => {
         return new Date(a).getTime() - new Date(b).getTime();
     });
 
-    // (2) 데이터셋 생성
     const datasets = selectedDongs.map((dong, index) => {
-      // 부동산 차트와 색상이 겹치지 않도록 오프셋(+5)을 줍니다.
       const color = COLORS[(index + 5) % COLORS.length] || "#000000";
 
       const data = labels.map(label => {
          const [dDate, dTime] = label.split(" ");
-         // 해당 시간, 해당 동의 매물 개수 카운트
          return logs.filter(l => l.crawl_date === dDate && l.crawl_time === dTime && l.dong === dong).length;
       });
 
@@ -99,14 +93,13 @@ export default function DongChartSection({ logs, loading }: Props) {
         pointRadius: 2,
         pointHoverRadius: 5,
         spanGaps: true,
-        hidden: hiddenDongs.has(dong), // 숨김 상태 반영
+        hidden: hiddenDongs.has(dong),
       };
     });
 
     setChartData({ labels, datasets });
   }, [selectedDongs, logs, hiddenDongs]);
 
-  // 핸들러 함수들
   const toggleDong = (dong: string) => {
     if (selectedDongs.includes(dong)) setSelectedDongs(selectedDongs.filter(d => d !== dong));
     else setSelectedDongs([...selectedDongs, dong]);
@@ -121,7 +114,6 @@ export default function DongChartSection({ logs, loading }: Props) {
     setHiddenDongs(newHidden);
   };
 
-  // 4. 차트 옵션 (기본 범례 끄기)
   const updatedChartOptions = useMemo<ChartOptions<'line'>>(() => {
     const baseOptions = (commonChartOptions || {}) as any;
     return {
@@ -129,7 +121,7 @@ export default function DongChartSection({ logs, loading }: Props) {
       maintainAspectRatio: false,
       plugins: {
         ...baseOptions.plugins,
-        legend: { display: false }, // 커스텀 범례 사용을 위해 false
+        legend: { display: false },
       },
       scales: {
         ...baseOptions.scales,
@@ -173,21 +165,24 @@ export default function DongChartSection({ logs, loading }: Props) {
             </div>
         </div>
         
-        {/* 차트 + 커스텀 범례 영역 */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-[350px] flex gap-4">
+        {/* ▼▼▼ 여기부터 수정됨: 반응형 레이아웃 적용 ▼▼▼ */}
+        {/* 컨테이너: 모바일(flex-col/높이자동) -> PC(md:flex-row/높이350px) */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-auto md:h-[350px] flex flex-col md:flex-row gap-4">
             {loading ? (
-                <div className="w-full h-full flex items-center justify-center text-gray-400 gap-2">
+                <div className="w-full h-[300px] flex items-center justify-center text-gray-400 gap-2">
                     데이터를 분석하고 있습니다...
                 </div>
             ) : chartData && chartData.datasets.length > 0 ? (
                 <>
-                    {/* 왼쪽: 차트 */}
-                    <div className="flex-1 relative min-w-0">
+                    {/* 차트 영역: 모바일(높이 250px) -> PC(높이 꽉 채움, flex-1) */}
+                    <div className="w-full h-[250px] md:h-full md:flex-1 relative min-w-0">
                         <Line options={updatedChartOptions} data={chartData} />
                     </div>
 
-                    {/* 오른쪽: 커스텀 범례 (w-72로 넓게) */}
-                    <div className="w-30 pl-1 overflow-y-auto custom-scrollbar flex flex-col gap-1.5 pr-1">
+                    {/* 범례 영역: */}
+                    {/* 모바일: w-full, 높이 100px, 2열 그리드(grid-cols-2) */}
+                    {/* PC(md): w-40, 높이 꽉 채움, 1열(flex-col) */}
+                    <div className="w-full md:w-40 h-[100px] md:h-full pl-1 overflow-y-auto custom-scrollbar grid grid-cols-2 content-start gap-2 md:flex md:flex-col md:gap-1.5 pr-1 border-t md:border-t-0 pt-2 md:pt-0 border-gray-100">
                         {chartData.datasets.map((dataset) => {
                             const isHidden = hiddenDongs.has(dataset.label as string);
                             return (
@@ -209,7 +204,7 @@ export default function DongChartSection({ logs, loading }: Props) {
                     </div>
                 </>
             ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-300 flex-col gap-2">
+                <div className="w-full h-[300px] flex items-center justify-center text-gray-300 flex-col gap-2">
                     <MapPin className="w-8 h-8 opacity-20"/>
                     <span>표시할 동 데이터가 없습니다.</span>
                 </div>
