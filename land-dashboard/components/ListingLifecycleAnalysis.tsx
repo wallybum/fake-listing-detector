@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 import { supabase } from "../utils/supabaseClient";
 import { RealEstateLog } from "../utils/types";
+// [import 확인] 엑셀 버튼 컴포넌트
+import ExcelDownloadButton from "./ExcelDownloadButton";
 
 interface Props {}
 
@@ -67,20 +69,16 @@ export default function ListingLifecycleAnalysis({}: Props) {
     "active"
   );
 
-  // ▼▼▼ [수정 1] 날짜 초기화 로직 변경 (기본값: 오늘 하루) ▼▼▼
-  
-  // 1. 시스템 수집 시작일 상수 (이 날짜 이전으로는 조회 불가하게 막음)
+  // 1. 시스템 수집 시작일 상수
   const SYSTEM_LAUNCH_DATE = "2025-12-19";
 
   const todayObj = new Date();
   const today = todayObj.toISOString().split("T")[0];
 
-  // 2. 시작일과 종료일을 모두 '오늘'로 설정 -> 로드 시 오늘 데이터만 표시
+  // 2. 시작일과 종료일을 모두 '오늘'로 설정
   const [localStartDate, setLocalStartDate] = useState(today);
   const [localEndDate, setLocalEndDate] = useState(today);
   
-  // -----------------------------------------------------------
-
   const [localTradeType, setLocalTradeType] = useState<"all" | "매매" | "전세">("all");
   const [filterProvider, setFilterProvider] = useState<string>("all");
 
@@ -106,8 +104,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
        return;
     }
 
-    // (선택사항) 오늘만 보기 모드이므로 1개월 제한은 풀어줘도 되지만, 
-    // 데이터 양이 많아질 것을 대비해 제한을 유지하는 것도 좋습니다. 여기선 유지했습니다.
     const oneMonthLimit = new Date(newStart);
     oneMonthLimit.setMonth(oneMonthLimit.getMonth() + 1);
 
@@ -434,6 +430,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
     );
   } else {
     listContent = filteredData.map((item, index) => {
+      // 리스트 렌더링 코드... (생략 없음, 기존과 동일)
       const isExpanded = expandedItems.has(item.article_no);
       const isDead = item.status === "deleted";
 
@@ -555,6 +552,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
             </div>
           </div>
 
+          {/* 확장 시 보이는 상세 이력 */}
           {isExpanded && (
             <div className="bg-gray-50 border-t border-gray-100 p-4 animate-in slide-in-from-top-2 duration-200">
               <h4 className="text-xs font-bold text-gray-600 mb-3 flex items-center gap-1">
@@ -651,6 +649,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[700px]">
       <div className="bg-gray-50 border-b border-gray-200 p-4 space-y-4">
+        {/* 상단 컨트롤 영역 (기존과 동일) */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 p-1 px-2">
@@ -688,7 +687,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <input
                 type="date"
                 value={localStartDate}
-                // ▼▼▼ [수정 2] min 속성 추가: 런칭일 이전은 선택 불가 처리
                 min={SYSTEM_LAUNCH_DATE} 
                 onChange={(e) => handleDateChange("start", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
@@ -697,47 +695,11 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <input
                 type="date"
                 value={localEndDate}
-                // ▼▼▼ [수정 2] min 속성 추가
                 min={SYSTEM_LAUNCH_DATE}
                 onChange={(e) => handleDateChange("end", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
               />
             </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4 justify-between">
-          <div className="flex gap-1 overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => setMainTab("active")}
-              className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-                mainTab === "active"
-                  ? "border-green-600 text-green-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              🏠 현재 등록 ({counts.activeTotal})
-            </button>
-            <button
-              onClick={() => setMainTab("analysis")}
-              className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-                mainTab === "analysis"
-                  ? "border-blue-600 text-blue-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              📊 변동 분석 ({counts.analysisTotal})
-            </button>
-            <button
-              onClick={() => setMainTab("deleted")}
-              className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-                mainTab === "deleted"
-                  ? "border-gray-500 text-gray-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              🗑️ 삭제된 매물 ({counts.deletedTotal})
-            </button>
           </div>
 
           <div className="relative w-full md:w-60">
@@ -760,6 +722,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
       {(mainTab === "active" || mainTab === "analysis") && (
         <div className="px-4 py-3 bg-blue-50/50 border-b border-blue-100 flex flex-wrap items-center gap-4">
+          
+          {/* 분석 탭 전용 필터 */}
           {mainTab === "analysis" && (
             <>
               <div className="flex items-center gap-2">
@@ -841,17 +805,37 @@ export default function ListingLifecycleAnalysis({}: Props) {
             </div>
           </div>
 
-          {(filterIssue !== "all" || filterOwner !== "all") && (
-            <button
-              onClick={() => {
-                setFilterIssue("all");
-                setFilterOwner("all");
-              }}
-              className="ml-auto text-[10px] flex items-center gap-1 text-gray-500 hover:text-red-500 transition-colors"
-            >
-              <X className="w-3 h-3" /> 초기화
-            </button>
-          )}
+          {/* ▼▼▼ [수정됨] 우측 끝에 '초기화' 및 '엑셀 다운로드' 버튼 배치 ▼▼▼ */}
+          <div className="ml-auto flex items-center gap-2">
+            {(filterIssue !== "all" || filterOwner !== "all" || filterProvider !== "all") && (
+                <button
+                onClick={() => {
+                    setFilterIssue("all");
+                    setFilterOwner("all");
+                    setFilterProvider("all");
+                }}
+                className="text-[10px] flex items-center gap-1 text-gray-500 hover:text-red-500 transition-colors mr-2"
+                >
+                <X className="w-3 h-3" /> 초기화
+                </button>
+            )}
+            
+            {/* 엑셀 다운로드 버튼: 조건(conditions) 전달 */}
+            <ExcelDownloadButton 
+                data={filteredData} 
+                fileName="DMC파크뷰자이_매물분석"
+                conditions={{
+                    startDate: localStartDate,
+                    endDate: localEndDate,
+                    tradeType: localTradeType,
+                    // 이 컴포넌트에는 시간대 필터가 없으므로 '00', '23' 고정
+                    startHour: "00", 
+                    endHour: "23",
+                    provider: filterProvider
+                }}
+            />
+          </div>
+
         </div>
       )}
 
