@@ -119,9 +119,22 @@ export default function DongChartSection({ logs, loading }: Props) {
     return {
       ...baseOptions, 
       maintainAspectRatio: false,
+
+      interaction: {
+        mode: 'nearest',   
+        intersect: false,   
+      },
+
       plugins: {
         ...baseOptions.plugins,
         legend: { display: false },
+
+        tooltip: {
+            ...baseOptions.plugins?.tooltip,
+            enabled: true,
+            mode: 'nearest',   // 필수 설정
+            intersect: false,
+        }
       },
       scales: {
         ...baseOptions.scales,

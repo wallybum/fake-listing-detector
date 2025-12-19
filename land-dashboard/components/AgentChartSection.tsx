@@ -173,9 +173,26 @@ export default function AgentChartSection({
     return {
       ...baseOptions,
       maintainAspectRatio: false,
+      // 모바일 터치 및 호버 동작 개선 설정
+      interaction: {
+        mode: 'nearest',    // [중요] 터치한 곳에서 가장 가까운 '점 하나'만 표시
+        intersect: false,   // 점을 정확히 안 눌러도 근처면 인식 (모바일 필수)
+        // axis: 'x',          // X축(시간) 기준으로 가장 가까운 점을 찾음
+      },
+
       plugins: {
         ...baseOptions.plugins,
         legend: { display: false },
+
+       tooltip: {
+            ...baseOptions.plugins?.tooltip,
+            enabled: true,
+            mode: 'nearest',   // 툴팁도 'nearest' 모드로
+            intersect: false,
+            
+            // [삭제] 배경색 설정 삭제 (기본 하얀/반투명 스타일로 원복)
+            // backgroundColor: 'rgba(0, 0, 0, 0.8)', 
+        }
       },
       scales: {
         ...baseOptions.scales,
