@@ -703,7 +703,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
             <History className="w-5 h-5 text-gray-600" />
-            매물 생애주기 분석(2025-12-11 17시 부터 수집 )
             {loading && (
               <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
             )}
