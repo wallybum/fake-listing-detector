@@ -13,7 +13,6 @@ import {
   MinusCircle,
   Crown,
   CheckCircle2,
-  Filter,
   X,
   ExternalLink,
   CalendarDays,
@@ -45,7 +44,7 @@ interface AnalyzedListing {
   trade_type: string;
   current_price: string;
   initial_price: string;
-  is_landlord: boolean;
+  is_owner: boolean; // [통일] DB 컬럼명 is_owner 사용
   verification_date?: string;
   has_history_change: boolean;
   is_relisted: boolean;
@@ -58,13 +57,16 @@ interface AnalyzedListing {
 
 export default function ListingLifecycleAnalysis({}: Props) {
   const [logs, setLogs] = useState<RealEstateLog[]>([]);
+  // 타임라인의 기준이 되는 '전체 수집 시간' 목록 (검색 시에도 전체 흐름 유지용)
+  const [allTimeLogs, setAllTimeLogs] = useState<{crawl_date: string, crawl_time: string}[]>([]);
+  
   const [loading, setLoading] = useState(false);
 
   const [mainTab, setMainTab] = useState<"active" | "analysis" | "deleted">(
     "active"
   );
 
-  // 날짜 필터 (기본값: 최근 1개월)
+  // 날짜 초기값 설정 (최근 1개월)
   const todayObj = new Date();
   const today = todayObj.toISOString().split("T")[0];
 
@@ -88,62 +90,81 @@ export default function ListingLifecycleAnalysis({}: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
+  // 데이터 조회 트리거 (검색어 입력 시 디바운싱 적용)
   useEffect(() => {
-    // 검색어 입력 시 0.5초 딜레이 후 재검색 (디바운싱 권장)
     const timer = setTimeout(() => {
       fetchLogs();
     }, 500);
     return () => clearTimeout(timer);
-
-    // ↓ 여기에 searchTerm이 없으면 검색어를 입력해도 fetchLogs가 실행되지 않습니다.
   }, [localStartDate, localEndDate, localTradeType, searchTerm]);
 
+  // -----------------------------------------------------------------------
+  // [NEW] 날짜 변경 핸들러 (최대 1개월 제한)
+  // -----------------------------------------------------------------------
+  const handleDateChange = (type: "start" | "end", newValue: string) => {
+    const newStart = type === "start" ? new Date(newValue) : new Date(localStartDate);
+    const newEnd = type === "end" ? new Date(newValue) : new Date(localEndDate);
+
+    // 종료일이 시작일보다 빠른 경우 방지 (선택 사항)
+    if (newStart > newEnd) {
+       alert("종료일은 시작일보다 빠를 수 없습니다.");
+       return;
+    }
+
+    // 1개월 초과 여부 검사
+    const oneMonthLimit = new Date(newStart);
+    oneMonthLimit.setMonth(oneMonthLimit.getMonth() + 1);
+    // 정확한 일수 계산이 필요하다면 setDate 등으로 조정 가능하나, 여기선 대략적 1달(Month+1) 기준
+
+    if (newEnd > oneMonthLimit) {
+      alert("최대 1개월 기간까지만 조회할 수 있습니다.\n기간을 좁혀주세요.");
+      return; // 상태 업데이트 차단 -> 입력값 원래대로 복구됨
+    }
+
+    if (type === "start") setLocalStartDate(newValue);
+    else setLocalEndDate(newValue);
+  };
+
+  // -----------------------------------------------------------------------
+  // 데이터 조회 로직
+  // -----------------------------------------------------------------------
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      // 1. 검색어 앞뒤 공백 제거 (실수 방지)
       const term = searchTerm ? searchTerm.trim() : "";
 
+      // 1. [Target Query] 실제 리스트에 보여줄 매물 데이터
       let query = supabase
         .from("real_estate_logs")
         .select("*")
-        .order("id", { ascending: false }); // 최신순
+        .order("id", { ascending: false });
 
-      // ---------------------------------------------------------
-      // [핵심] 검색어가 있으면 다른 필터(날짜, 거래종류) 다 무시하고
-      // 오직 "그 놈"만 전곡 찌르기로 찾아냅니다.
-      // ---------------------------------------------------------
+      // 2. [Timeline Query] 전체 수집 시간의 뼈대 (검색 시에도 전체 흐름 파악용)
+      //    검색어가 있든 없든, 내가 선택한 날짜 범위 내의 전체 시스템 기록을 가져옴
+      let timeQuery = supabase
+        .from("real_estate_logs")
+        .select("crawl_date, crawl_time")
+        .gte("crawl_date", localStartDate)
+        .lte("crawl_date", localEndDate)
+        .order("id", { ascending: false })
+        .limit(5000); // 타임라인 구성용으로 넉넉히
+
       if (term.length > 0) {
         console.log("🔍 검색 모드 발동:", term);
-
-        // 검색어가 숫자(매물번호) 처럼 보일 때
+        
+        // 검색 시에는 '날짜 필터'를 무시하고 해당 매물의 전 생애(과거 이력)를 다 가져옵니다.
+        // 숫자면 매물번호/동, 문자면 동/부동산명 검색
         if (/^\d+$/.test(term)) {
-          // 방법 A: 매물번호와 정확히 일치하거나 (eq)
-          // 방법 B: 매물번호 컬럼을 문자로 바꿔서 포함되는지 확인 (ilike -> 더 강력함)
-          // 방법 C: 동 이름에 숫자가 들어간 경우 (예: 125동)
-
-          // "article_no"를 텍스트로 캐스팅(::text)해서 비교하므로
-          // DB가 숫자형이든 문자형이든 상관없이 찾아냅니다.
           query = query.or(`article_no.eq.${term},dong.ilike.%${term}%`);
-
-          // [중요] 검색 시에는 날짜 제한을 풉니다.
-          // 왜냐? 11일 데이터가 날짜 필터에 걸려 안나오는걸 방지하기 위함
-          // (필요하다면 아래 주석 풀어서 날짜 제한 다시 거셔도 됩니다)
-          // query = query.gte("crawl_date", localStartDate).lte("crawl_date", localEndDate);
         } else {
-          // 문자가 섞인 검색어 (예: DMC, 자이)
           query = query.or(`dong.ilike.%${term}%,agent.ilike.%${term}%`);
-          query = query
-            .gte("crawl_date", localStartDate)
-            .lte("crawl_date", localEndDate);
         }
+        
+        // [중요] 검색 시 과거 이력이 잘리지 않도록 Limit 해제 (최대 10000개)
+        query = query.limit(10000);
 
-        // 검색 시 Limit 해제 (모든 이력 추적)
-        query = query.limit(5000000000000);
       } else {
-        // ---------------------------------------------------------
-        // 검색어가 없을 때 (기존 로직: 날짜+타입 필터 적용)
-        // ---------------------------------------------------------
+        // 검색어가 없을 때는 날짜/거래종류 필터 적용
         query = query
           .gte("crawl_date", localStartDate)
           .lte("crawl_date", localEndDate);
@@ -151,26 +172,27 @@ export default function ListingLifecycleAnalysis({}: Props) {
         if (localTradeType !== "all") {
           query = query.eq("trade_type", localTradeType);
         }
-        // 전체 조회 시 데이터 제한
-        query = query.limit(5000000000000);
+        query = query.limit(10000);
       }
 
-      const { data, error } = await query;
+      // 두 쿼리를 병렬로 실행
+      const [logsResult, timeResult] = await Promise.all([query, timeQuery]);
 
-      if (error) {
-        console.error("🚨 쿼리 에러:", error.message);
-        throw error;
+      if (logsResult.error) throw logsResult.error;
+      
+      if (logsResult.data) {
+        setLogs(logsResult.data as RealEstateLog[]);
       }
 
-      if (data) {
-        console.log(`✅ 데이터 로드 성공: ${data.length}건`);
-        if (term && data.length === 0) {
-          console.warn(
-            "⚠️ 검색 결과가 0건입니다. DB의 article_no 값에 공백이 있는지 확인해보세요."
-          );
-        }
-        setLogs(data as RealEstateLog[]);
+      // 3. 타임라인 기준 데이터 설정
+      if (term.length > 0) {
+        // 검색 중일 때는 검색 결과(logs)가 듬성듬성하므로, 별도 조회한 timeResult로 뼈대를 만듭니다.
+        if (timeResult.data) setAllTimeLogs(timeResult.data);
+      } else {
+        // 검색이 아닐 때는 logs 자체가 전체 데이터이므로 그대로 사용 (정합성 보장)
+        if (logsResult.data) setAllTimeLogs(logsResult.data);
       }
+
     } catch (error) {
       console.error("Analysis Log Fetch Error:", error);
     } finally {
@@ -185,204 +207,18 @@ export default function ListingLifecycleAnalysis({}: Props) {
     setExpandedItems(newSet);
   };
 
-//   const analyzedData = useMemo(() => {
-//     if (logs.length === 0) return [];
-
-//     const uniqueSnapshots = Array.from(
-//       new Set(logs.map((l) => `${l.crawl_date}|${l.crawl_time}`))
-//     );
-//     uniqueSnapshots.sort((a, b) => {
-//       const [dateA, timeA] = a.split("|");
-//       const [dateB, timeB] = b.split("|");
-//       if (dateA !== dateB) return dateB.localeCompare(dateA);
-//       const numA = parseInt(timeA.replace(/[^0-9]/g, ""), 10);
-//       const numB = parseInt(timeB.replace(/[^0-9]/g, ""), 10);
-//       return numB - numA;
-//     });
-
-//     const latestSnapshotKey = uniqueSnapshots[0];
-//     const groups: Record<string, RealEstateLog[]> = {};
-//     logs.forEach((log) => {
-//       if (!log.article_no || log.article_no === "-") return;
-//       if (!groups[log.article_no]) groups[log.article_no] = [];
-//       groups[log.article_no].push(log);
-//     });
-
-//     const analyzed: AnalyzedListing[] = Object.keys(groups).map((key) => {
-//       const items = groups[key];
-//       items.sort((a, b) => {
-//         if (a.crawl_date !== b.crawl_date)
-//           return a.crawl_date.localeCompare(b.crawl_date);
-//         const tA = parseInt(a.crawl_time.replace(/[^0-9]/g, ""), 10);
-//         const tB = parseInt(b.crawl_time.replace(/[^0-9]/g, ""), 10);
-//         return tA - tB;
-//       });
-
-//       const firstItem = items[0];
-//       const lastItem = items[items.length - 1];
-
-//       const normalizePrice = (p: string) =>
-//         p.replace(/\s+/g, "").replace(/,/g, "").trim();
-//       const has_history_change =
-//         new Set(items.map((i) => normalizePrice(i.price))).size > 1;
-
-//       const initialPriceVal = parseInt(firstItem.price.replace(/[^0-9]/g, ""));
-//       const currentPriceVal = parseInt(lastItem.price.replace(/[^0-9]/g, ""));
-
-//       let priceDir: "up" | "down" | "same" | "fluctuated" = "same";
-//       if (currentPriceVal > initialPriceVal) priceDir = "up";
-//       else if (currentPriceVal < initialPriceVal) priceDir = "down";
-//       else if (has_history_change) priceDir = "fluctuated";
-
-//       let status: "active" | "deleted" | "new" = "active";
-//       if (
-//         uniqueSnapshots.length > 0 &&
-//         `${lastItem.crawl_date}|${lastItem.crawl_time}` !== latestSnapshotKey
-//       ) {
-//         status = "deleted";
-//       } else if (items.length === 1 && uniqueSnapshots.length > 1) {
-//         status = "new";
-//       }
-
-//       const full_timeline: TimelineItem[] = uniqueSnapshots.map(
-//         (snapshotKey) => {
-//           const [sDate, sTime] = snapshotKey.split("|");
-//           const log = items.find(
-//             (i) => i.crawl_date === sDate && i.crawl_time === sTime
-//           );
-//           if (log) {
-//             return {
-//               full_key: snapshotKey,
-//               date: sDate,
-//               time: sTime,
-//               status: "collected",
-//               price: log.price,
-//               agent: log.agent,
-//               dong: log.dong,
-//             };
-//           } else {
-//             return {
-//               full_key: snapshotKey,
-//               date: sDate,
-//               time: sTime,
-//               status: "missing",
-//             };
-//           }
-//         }
-//       );
-
-//       let validTimeline = full_timeline;
-//       let is_relisted = false;
-//       const reversed = [...full_timeline].reverse();
-//       const firstCollectedIdx = reversed.findIndex(
-//         (t) => t.status === "collected"
-//       );
-
-//       if (firstCollectedIdx !== -1) {
-//         const validRaw = reversed.slice(firstCollectedIdx);
-//         const hasGap = validRaw.some((t, idx) => {
-//           if (t.status === "missing" && idx < validRaw.length - 1) {
-//             const future = validRaw.slice(idx + 1);
-//             return future.some((f) => f.status === "collected");
-//           }
-//           return false;
-//         });
-//         if (hasGap) is_relisted = true;
-
-//         if (searchTerm && searchTerm.trim().length > 0) {
-//           // 검색 시에는 모든 기록을 최신순으로 뒤집어서 그대로 보여줌
-//           validTimeline = [...validRaw].reverse();
-//         } else {
-//           const changesOnly = validRaw.filter((item, idx) => {
-//             if (idx === 0) return true;
-//             const prevItem = validRaw[idx - 1];
-//             if (item.status !== prevItem.status) return true;
-//             if (
-//               item.status === "collected" &&
-//               prevItem.status === "collected"
-//             ) {
-//               const p1 = normalizePrice(item.price || "");
-//               const p2 = normalizePrice(prevItem.price || "");
-//               return p1 !== p2;
-//             }
-//             return false;
-//           });
-//           validTimeline = changesOnly.reverse();
-//         }
-//       } else {
-//         validTimeline = [];
-//       }
-
-//       return {
-//         article_no: key,
-//         dong: lastItem.dong,
-//         spec: lastItem.spec,
-//         agent: lastItem.agent,
-//         trade_type: lastItem.trade_type || "매매",
-//         current_price: lastItem.price,
-//         initial_price: firstItem.price,
-//         is_landlord: (lastItem as any).is_landlord || false,
-//         verification_date: (lastItem as any).verification_date || null,
-//         has_history_change,
-//         is_relisted,
-//         price_direction: priceDir,
-//         first_seen: `${firstItem.crawl_date} ${firstItem.crawl_time}`,
-//         last_seen: `${lastItem.crawl_date} ${lastItem.crawl_time}`,
-//         status,
-//         display_timeline: validTimeline,
-//       };
-//     });
-
-//     return analyzed.sort((a, b) => b.last_seen.localeCompare(a.last_seen));
-//   }, [logs]);
-
-  //   const filteredData = useMemo(() => {
-  //     return analyzedData.filter((item) => {
-  //       const matchSearch =
-  //         item.dong.includes(searchTerm) ||
-  //         item.agent.includes(searchTerm) ||
-  //         item.article_no.includes(searchTerm);
-  //       if (!matchSearch) return false;
-
-  //       if (mainTab === "active") {
-  //         const isActive = item.status === "active" || item.status === "new";
-  //         if (!isActive) return false;
-  //         if (filterOwner === "landlord" && !item.is_landlord) return false;
-  //         if (filterOwner === "agent" && item.is_landlord) return false;
-  //         return true;
-  //       }
-
-  //       if (mainTab === "deleted") return item.status === "deleted";
-
-  //       if (mainTab === "analysis") {
-  //         const hasIssue = item.has_history_change || item.is_relisted;
-  //         if (!hasIssue) return false;
-  //         if (filterIssue === "price" && !item.has_history_change) return false;
-  //         if (filterIssue === "relist" && !item.is_relisted) return false;
-  //         if (filterOwner === "landlord" && !item.is_landlord) return false;
-  //         if (filterOwner === "agent" && item.is_landlord) return false;
-  //         return true;
-  //       }
-  //       return true;
-  //     });
-  //   }, [analyzedData, mainTab, filterIssue, filterOwner, searchTerm]);
-
-
+  // -----------------------------------------------------------------------
+  // 데이터 분석 및 가공 (useMemo)
+  // -----------------------------------------------------------------------
   const analyzedData = useMemo(() => {
     if (logs.length === 0) return [];
 
-    // 1. 존재하는 로그들로 스냅샷 키 생성
-    let rawSnapshots = logs.map((l) => `${l.crawl_date}|${l.crawl_time}`);
-    
-    // [핵심 해결책] 검색 시, 중간에 빈 시간(이빨 빠진 시간)을 강제로 채워넣습니다.
-    // 그래야 로직이 "어? 11시에는 데이터가 없네?" 하고 'Missing' 판정을 내릴 수 있습니다.
-    if (searchTerm && logs.length > 0) {
-       rawSnapshots = fillTimeGaps(rawSnapshots);
-    }
-
+    // 1. [타임라인 생성] 전체 시스템 기록(allTimeLogs) 기반
+    //    fillTimeGaps 제거 -> 실제 DB에 있는 시간만 사용 (정확한 매칭)
+    const rawSnapshots = allTimeLogs.map((l) => `${l.crawl_date}|${l.crawl_time}`);
     const uniqueSnapshots = Array.from(new Set(rawSnapshots));
 
-    // 최신순 정렬 (날짜 -> 시간)
+    // 최신순 정렬
     uniqueSnapshots.sort((a, b) => {
       const [dateA, timeA] = a.split("|");
       const [dateB, timeB] = b.split("|");
@@ -395,6 +231,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
     const latestSnapshotKey = uniqueSnapshots[0];
     const groups: Record<string, RealEstateLog[]> = {};
+    
+    // 매물별 그룹핑
     logs.forEach((log) => {
       if (!log.article_no || log.article_no === "-") return;
       if (!groups[log.article_no]) groups[log.article_no] = [];
@@ -403,7 +241,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
     const analyzed: AnalyzedListing[] = Object.keys(groups).map((key) => {
       const items = groups[key];
-      // 아이템 정렬
+      // 매물 내 이력 정렬 (시간순)
       items.sort((a, b) => {
         if (a.crawl_date !== b.crawl_date) return a.crawl_date.localeCompare(b.crawl_date);
         const tA = parseInt(a.crawl_time.replace(/[^0-9]/g, ""), 10);
@@ -413,18 +251,19 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
       const firstItem = items[0];
       const lastItem = items[items.length - 1];
-
-      // ... (가격 변동 로직 등 기존 동일) ...
+      
       const normalizePrice = (p: string) => p.replace(/\s+/g, "").replace(/,/g, "").trim();
       const has_history_change = new Set(items.map((i) => normalizePrice(i.price))).size > 1;
       
       const initialPriceVal = parseInt(firstItem.price.replace(/[^0-9]/g, ""));
       const currentPriceVal = parseInt(lastItem.price.replace(/[^0-9]/g, ""));
+      
       let priceDir: "up" | "down" | "same" | "fluctuated" = "same";
       if (currentPriceVal > initialPriceVal) priceDir = "up";
       else if (currentPriceVal < initialPriceVal) priceDir = "down";
       else if (has_history_change) priceDir = "fluctuated";
 
+      // 상태 결정: 내 마지막 기록 시점이 시스템 전체 최신 시점과 같은가?
       let status: "active" | "deleted" | "new" = "active";
       if (uniqueSnapshots.length > 0 && `${lastItem.crawl_date}|${lastItem.crawl_time}` !== latestSnapshotKey) {
         status = "deleted";
@@ -432,13 +271,14 @@ export default function ListingLifecycleAnalysis({}: Props) {
         status = "new";
       }
 
-      // 2. 전체 타임라인 생성 (여기서 Missing이 판별됨)
+      // 2. [전체 타임라인 매핑] Missing 여부 판단
       const full_timeline: TimelineItem[] = uniqueSnapshots.map(
         (snapshotKey) => {
           const [sDate, sTime] = snapshotKey.split("|");
           const log = items.find(
             (i) => i.crawl_date === sDate && i.crawl_time === sTime
           );
+
           if (log) {
             return {
               full_key: snapshotKey,
@@ -454,53 +294,56 @@ export default function ListingLifecycleAnalysis({}: Props) {
               full_key: snapshotKey,
               date: sDate,
               time: sTime,
-              status: "missing", // <- fillTimeGaps 덕분에 이제 여기가 발동됩니다!
+              status: "missing",
             };
           }
         }
       );
 
-      let validTimeline = full_timeline;
+      // 3. [압축 로직] 요청사항 반영: 최초 -> (변동없음 생략) -> 누락 -> 재수집
+      let validTimeline: TimelineItem[] = [];
       let is_relisted = false;
-      const reversed = [...full_timeline].reverse(); // 과거 -> 미래
-      const firstCollectedIdx = reversed.findIndex((t) => t.status === "collected");
-      
-      if (firstCollectedIdx !== -1) {
-        const validRaw = reversed.slice(firstCollectedIdx);
-        
-        // 재등록 감지
-        const hasGap = validRaw.some((t, idx) => {
-          if (t.status === "missing" && idx < validRaw.length - 1) {
-            const future = validRaw.slice(idx + 1);
-            return future.some((f) => f.status === "collected");
-          }
-          return false;
-        });
-        if (hasGap) is_relisted = true;
 
-        // [복구됨] 변동사항만 남기기 (압축 로직)
-        // 10시(수집) -> 11시(누락-Change!) -> 12시(누락-Skip) -> 13시(누락-Skip) -> 14시(수집-Change!)
-        const changesOnly = validRaw.filter((item, idx) => {
-          if (idx === 0) return true; // 최초 발견 시점은 무조건 표시
+      // 처리를 위해 과거->미래 순으로 뒤집기
+      const chronological = [...full_timeline].reverse(); 
+      
+      // 내 매물이 처음 등장한 시점 찾기 (그 전의 시스템 기록은 무시)
+      const firstAppearanceIdx = chronological.findIndex(t => t.status === 'collected');
+
+      if (firstAppearanceIdx !== -1) {
+          const relevantHistory = chronological.slice(firstAppearanceIdx);
           
-          const prevItem = validRaw[idx - 1];
+          validTimeline = relevantHistory.filter((curr, idx) => {
+              if (idx === 0) return true; // 최초 1건 필수 표시
+
+              const prev = relevantHistory[idx - 1];
+
+              // 상태가 변하면 표시 (Collected <-> Missing)
+              if (curr.status !== prev.status) return true;
+
+              // 가격이 변하면 표시
+              if (curr.status === 'collected' && prev.status === 'collected') {
+                  const p1 = normalizePrice(curr.price || "");
+                  const p2 = normalizePrice(prev.price || "");
+                  return p1 !== p2;
+              }
+
+              // 그 외(변동 없는 구간)는 생략
+              return false;
+          });
+
+          // 재등록 여부 체크 (Missing 구간 존재 여부 확인)
+          const hasGap = relevantHistory.some((t, idx) => {
+             if (t.status === 'missing' && idx < relevantHistory.length - 1) {
+                 const future = relevantHistory.slice(idx + 1);
+                 return future.some(f => f.status === 'collected');
+             }
+             return false;
+          });
+          if (hasGap) is_relisted = true;
           
-          // 상태가 바뀌면 표시 (수집됨 <-> 안됨)
-          if (item.status !== prevItem.status) return true;
-          
-          // 수집된 상태에서 가격이 바뀌면 표시
-          if (item.status === "collected" && prevItem.status === "collected") {
-            const p1 = normalizePrice(item.price || "");
-            const p2 = normalizePrice(prevItem.price || "");
-            return p1 !== p2;
-          }
-          
-          return false; // 상태도 같고 가격도 같으면 숨김 (압축)
-        });
-        
-        validTimeline = changesOnly.reverse(); // 최신순 정렬
-      } else {
-        validTimeline = [];
+          // 화면 표시용으로 다시 최신순 정렬
+          validTimeline.reverse(); 
       }
 
       return {
@@ -511,7 +354,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
         trade_type: lastItem.trade_type || "매매",
         current_price: lastItem.price,
         initial_price: firstItem.price,
-        is_landlord: (lastItem as any).is_landlord || false,
+        // [중요] DB is_owner 값을 Boolean으로 변환
+        is_owner: !!(lastItem as any).is_owner,
         verification_date: (lastItem as any).verification_date || null,
         has_history_change,
         is_relisted,
@@ -524,58 +368,16 @@ export default function ListingLifecycleAnalysis({}: Props) {
     });
 
     return analyzed.sort((a, b) => b.last_seen.localeCompare(a.last_seen));
-  }, [logs, searchTerm]); // 의존성 확인
+  }, [logs, allTimeLogs, searchTerm]);
 
-  // ------------------------------------------------------------------
-  // [Helper] 빈 시간 채우기 함수 (컴포넌트 내부나 외부에 선언)
-  // ------------------------------------------------------------------
-  function fillTimeGaps(snapshots: string[]) {
-    if (snapshots.length === 0) return [];
-    
-    // 1. 날짜 객체로 변환하여 정렬
-    const times = snapshots.map(s => {
-        const [d, t] = s.split("|");
-        const hour = parseInt(t.replace(/[^0-9]/g, ""), 10);
-        const dateObj = new Date(d);
-        dateObj.setHours(hour);
-        return dateObj.getTime();
-    }).sort((a, b) => a - b); // 오름차순 (과거 -> 미래)
-
-    const minTime = times[0];
-    const maxTime = times[times.length - 1];
-    const result = new Set<string>();
-
-    // 2. 1시간 단위로 루프 돌며 빈틈 채우기
-    let current = minTime;
-    while (current <= maxTime) {
-        const d = new Date(current);
-        
-        // YYYY-MM-DD 포맷 만들기
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        const dateStr = `${yyyy}-${mm}-${dd}`;
-        
-        // "13시" 포맷 만들기
-        const hourStr = `${String(d.getHours()).padStart(2, "0")}시`; 
-        
-        result.add(`${dateStr}|${hourStr}`);
-        
-        current += 3600 * 1000; // 1시간 추가
-    }
-
-    return Array.from(result);
-  }
-
+  // -----------------------------------------------------------------------
+  // 필터링 (검색어 + 탭 + 세부필터)
+  // -----------------------------------------------------------------------
   const filteredData = useMemo(() => {
-    // 검색어 공백 제거 (여기서도 해줘야 안전함)
     const term = searchTerm.trim();
 
     return analyzedData.filter((item) => {
-      // ----------------------------------------------------------------
-      // 1. 검색어 매칭 (Search Matching)
-      // ----------------------------------------------------------------
-      // 데이터가 없을 수도 있으니 안전하게 빈 문자열("") 처리 후 비교
+      // 1. 검색어 체크
       const matchSearch =
         term === "" ||
         (item.article_no || "").includes(term) ||
@@ -584,24 +386,13 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
       if (!matchSearch) return false;
 
-      // ----------------------------------------------------------------
-      // 2. 탭 필터링 (Tab Filtering) - [여기가 수정됨]
-      // ----------------------------------------------------------------
-
-      // [핵심] 검색어가 있으면 탭 필터를 무시하고 무조건 보여줍니다.
-      // "내가 콕 집어서 검색했는데, 탭이 다르다고 안 보여주면 안 되니까"
-      if (term.length > 0) {
-        return true;
-      }
-
-      // 검색어가 없을 때만 아래 탭 규칙을 따름
+      // 2. 탭 & 세부 필터 체크 (검색어가 있어도 탭 규칙 준수)
       if (mainTab === "active") {
         const isActive = item.status === "active" || item.status === "new";
         if (!isActive) return false;
-
-        // 소유자 필터
-        if (filterOwner === "landlord" && !item.is_landlord) return false;
-        if (filterOwner === "agent" && item.is_landlord) return false;
+        
+        if (filterOwner === "landlord" && !item.is_owner) return false;
+        if (filterOwner === "agent" && item.is_owner) return false;
 
         return true;
       }
@@ -611,31 +402,36 @@ export default function ListingLifecycleAnalysis({}: Props) {
       }
 
       if (mainTab === "analysis") {
-        // [범인] 변동 내역이 없으면 false를 리턴하던 곳
         const hasIssue = item.has_history_change || item.is_relisted;
-        if (!hasIssue) return false; // <- 검색 시에는 이 줄을 건너뛰게 됨
+        if (!hasIssue) return false;
 
         if (filterIssue === "price" && !item.has_history_change) return false;
         if (filterIssue === "relist" && !item.is_relisted) return false;
 
-        // 소유자 필터
-        if (filterOwner === "landlord" && !item.is_landlord) return false;
-        if (filterOwner === "agent" && item.is_landlord) return false;
+        if (filterOwner === "landlord" && !item.is_owner) return false;
+        if (filterOwner === "agent" && item.is_owner) return false;
 
         return true;
       }
-      return true;
+      
+      return false; // 어떤 탭에도 속하지 않으면 표시 X
     });
   }, [analyzedData, mainTab, filterIssue, filterOwner, searchTerm]);
 
+  // -----------------------------------------------------------------------
+  // 카운트 계산
+  // -----------------------------------------------------------------------
   const counts = useMemo(() => {
-    const activeBase = analyzedData.filter(
+    // 탭 카운트는 검색 결과(filteredData)가 아닌, 전체 분석 데이터(analyzedData) 기준
+    const baseData = analyzedData;
+
+    const activeBase = baseData.filter(
       (d) => d.status === "active" || d.status === "new"
     );
-    const analysisBase = analyzedData.filter(
+    const analysisBase = baseData.filter(
       (d) => d.has_history_change || d.is_relisted
     );
-    const deletedBase = analyzedData.filter((d) => d.status === "deleted");
+    const deletedBase = baseData.filter((d) => d.status === "deleted");
 
     return {
       activeTotal: activeBase.length,
@@ -643,27 +439,30 @@ export default function ListingLifecycleAnalysis({}: Props) {
       deletedTotal: deletedBase.length,
       analysisPrice: analysisBase.filter((d) => d.has_history_change).length,
       analysisRelist: analysisBase.filter((d) => d.is_relisted).length,
-      analysisLandlord: analysisBase.filter((d) => d.is_landlord).length,
-      analysisAgent: analysisBase.filter((d) => !d.is_landlord).length,
+      analysisOwner: analysisBase.filter((d) => d.is_owner).length,
+      analysisAgent: analysisBase.filter((d) => !d.is_owner).length,
     };
   }, [analyzedData]);
 
-  const ownerCounts = getCurrentOwnerCounts();
-
-  function getCurrentOwnerCounts() {
+  // 현재 탭에 맞는 소유자(집주인/일반) 카운트 반환
+  const ownerCounts = useMemo(() => {
     if (mainTab === "active") {
       const activeBase = analyzedData.filter(
         (d) => d.status === "active" || d.status === "new"
       );
       return {
-        landlord: activeBase.filter((d) => d.is_landlord).length,
-        agent: activeBase.filter((d) => !d.is_landlord).length,
+        owner: activeBase.filter((d) => d.is_owner).length,
+        agent: activeBase.filter((d) => !d.is_owner).length,
       };
     }
-    return { landlord: counts.analysisLandlord, agent: counts.analysisAgent };
-  }
+    // Analysis 탭은 counts 객체 값 재사용
+    return { owner: counts.analysisOwner, agent: counts.analysisAgent };
+  }, [mainTab, analyzedData, counts]);
 
-  // --- [중요] 렌더링 컨텐츠를 변수로 분리하여 문법 오류 원천 차단 ---
+
+  // -----------------------------------------------------------------------
+  // 렌더링
+  // -----------------------------------------------------------------------
   let listContent;
 
   if (loading) {
@@ -691,16 +490,18 @@ export default function ListingLifecycleAnalysis({}: Props) {
             isDead ? "border-gray-200 opacity-90" : "border-gray-200"
           }`}
         >
+          {/* 카드 헤더 (클릭 시 확장) */}
           <div
             className="p-4 cursor-pointer hover:bg-gray-50 transition-colors relative"
             onClick={() => toggleExpand(item.article_no)}
           >
+            {/* 상단 뱃지 영역 */}
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
               <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-100 text-gray-600 rounded border border-gray-200 flex items-center gap-1">
                 <Layers className="w-3 h-3" /> {item.trade_type}
               </span>
 
-              {item.is_landlord && (
+              {item.is_owner && (
                 <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-700 rounded border border-indigo-200 flex items-center gap-1">
                   <Crown className="w-3 h-3" /> 집주인
                 </span>
@@ -717,7 +518,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
               )}
               {!item.has_history_change &&
                 !item.is_relisted &&
-                !item.is_landlord &&
+                !item.is_owner &&
                 item.status === "new" && (
                   <span className="px-2 py-0.5 text-[10px] font-bold bg-green-500 text-white rounded">
                     NEW
@@ -802,6 +603,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
             </div>
           </div>
 
+          {/* 확장 시 보이는 상세 이력 */}
           {isExpanded && (
             <div className="bg-gray-50 border-t border-gray-100 p-4 animate-in slide-in-from-top-2 duration-200">
               <h4 className="text-xs font-bold text-gray-600 mb-3 flex items-center gap-1">
@@ -810,14 +612,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <div className="space-y-0 relative">
                 <div className="absolute left-[19px] top-2 bottom-2 w-0.5 bg-gray-200"></div>
                 {item.display_timeline.map((log, idx) => {
-                  const p1 = (log.price || "")
-                    .replace(/\s+/g, "")
-                    .replace(/,/g, "")
-                    .trim();
-                  const pStart = (item.initial_price || "")
-                    .replace(/\s+/g, "")
-                    .replace(/,/g, "")
-                    .trim();
+                  const p1 = (log.price || "").replace(/\s+/g, "").replace(/,/g, "").trim();
+                  const pStart = (item.initial_price || "").replace(/\s+/g, "").replace(/,/g, "").trim();
                   const isPriceChanged = p1 !== pStart;
 
                   return (
@@ -935,14 +731,16 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <input
                 type="date"
                 value={localStartDate}
-                onChange={(e) => setLocalStartDate(e.target.value)}
+                // [수정] 핸들러 교체
+                onChange={(e) => handleDateChange("start", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer"
               />
               <span className="text-gray-400">~</span>
               <input
                 type="date"
                 value={localEndDate}
-                onChange={(e) => setLocalEndDate(e.target.value)}
+                // [수정] 핸들러 교체
+                onChange={(e) => handleDateChange("end", e.target.value)}
                 className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer"
               />
             </div>
@@ -1069,7 +867,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
                     : "text-gray-500 hover:bg-gray-50"
                 }`}
               >
-                👑 집주인 ({ownerCounts.landlord})
+                👑 집주인 ({ownerCounts.owner})
               </button>
               <button
                 onClick={() => setFilterOwner("agent")}

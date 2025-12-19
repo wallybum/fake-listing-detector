@@ -1,110 +1,198 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Building2, ChevronDown } from 'lucide-react';
-import { StatData } from '../utils/types';
-import { COLORS, generateSmartLabels, commonChartOptions } from '../utils/chartUtils';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+import { RealEstateLog } from '../utils/types';
+import { COLORS, commonChartOptions } from '../utils/chartUtils';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ChartData,
+  ChartOptions
+} from 'chart.js';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 interface Props {
-  rawStats: StatData[];
+  logs: RealEstateLog[];
   loading: boolean;
-  startDate: string;
-  endDate: string;
-  startHour: string;
+  startHour: string; 
   endHour: string;
 }
 
-export default function AgentChartSection({ rawStats, loading, startDate, endDate, startHour, endHour }: Props) {
+export default function AgentChartSection({ logs, loading,startHour,endHour}: Props) {
   const [agentOptions, setAgentOptions] = useState<string[]>([]);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
-  const [chartData, setChartData] = useState<any>(null);
+  const [chartData, setChartData] = useState<ChartData<"line"> | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [hiddenAgents, setHiddenAgents] = useState<Set<string>>(new Set());
 
+  
+
+  // 1. 드롭다운 외부 클릭 감지
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) setIsFilterOpen(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // 2. 로그 데이터에서 부동산 목록 추출
   useEffect(() => {
-    if (rawStats && rawStats.length > 0) {
-      const agents = Array.from(new Set(rawStats.map((d) => d.agent!))).sort();
+    if (logs && logs.length > 0) {
+      const agents = Array.from(new Set(logs.map((d) => d.agent || "알수없음"))).sort();
       setAgentOptions(agents);
-      setSelectedAgents(agents);
+      setSelectedAgents((prev) => {
+        if (prev.length === 0) return agents;
+        return prev.filter(a => agents.includes(a));
+      });
     } else {
         setAgentOptions([]);
         setSelectedAgents([]);
         setChartData(null);
     }
-  }, [rawStats]);
+  }, [logs]);
 
+  // 3. 차트 데이터 생성
   useEffect(() => {
-    if (!rawStats || rawStats.length === 0) return;
-    
-    const isSingleDay = startDate === endDate;
-    let labels = generateSmartLabels(rawStats, startDate, endDate, startHour, endHour);
-    if (!labels) labels = [];
+    if (!logs || logs.length === 0) {
+        setChartData(null);
+        return;
+    }
 
-    const datasets = selectedAgents.map((agent, index) => {
-      const color = COLORS[index % COLORS.length];
-      const targetStats = rawStats.filter(s => s.agent === agent);
-      
-      const countMap: Record<string, number> = {};
-      targetStats.forEach(s => {
-        let timeKey = s.time_str;
-        if (timeKey.includes('시')) {
-            const hour = parseInt(timeKey.replace('시', ''), 10);
-            timeKey = `${String(hour).padStart(2, '0')}:00`;
+    // (1) 선택된 시간대(Start ~ End)에 맞는 로그만 필터링
+    const sHour = parseInt(startHour, 10);
+    const eHour = parseInt(endHour, 10);
+
+    const filteredLogs = logs.filter(log => {
+        // crawl_time 형식: "16:47" 또는 "16시" 등
+        let h = 0;
+        if (log.crawl_time.includes(":")) {
+            h = parseInt(log.crawl_time.split(":")[0], 10);
+        } else {
+            h = parseInt(log.crawl_time.replace(/[^0-9]/g, ""), 10);
         }
-        const key = isSingleDay ? timeKey : `${s.day_str.slice(5)} ${timeKey}`;
-        countMap[key] = s.count;
+        // 시작시간 이상, 종료시간 이하인 것만 통과
+        return h >= sHour && h <= eHour;
+    });
+
+    if (filteredLogs.length === 0) {
+        setChartData(null);
+        return;
+    }
+
+    // (2) 필터링된 로그(filteredLogs)를 기준으로 X축 생성
+    const timeSet = new Set<string>();
+    filteredLogs.forEach(log => {
+        timeSet.add(`${log.crawl_date} ${log.crawl_time}`);
+    });
+    
+    const labels = Array.from(timeSet).sort((a, b) => {
+        return new Date(a).getTime() - new Date(b).getTime();
+    });
+
+    // (3) 데이터셋 생성 (filteredLogs 기준 카운팅)
+    const datasets = selectedAgents.map((agent, index) => {
+      const color = COLORS[index % COLORS.length] || "#000000";
+
+      const data = labels.map(label => {
+         const [dDate, dTime] = label.split(" ");
+         // 여기서도 filteredLogs 안에서 찾아야 정확함
+         return filteredLogs.filter(l => l.crawl_date === dDate && l.crawl_time === dTime && l.agent === agent).length;
       });
 
       return {
         label: agent,
-        data: labels.map(label => countMap[label] || null),
+        data: data,
         borderColor: color,
         backgroundColor: color,
         tension: 0.3,
-        pointRadius: 3,
+        pointRadius: 2,
+        pointHoverRadius: 5,
         spanGaps: true,
+        hidden: hiddenAgents.has(agent),
       };
     });
 
     setChartData({ labels, datasets });
-  }, [selectedAgents, rawStats, startDate, endDate, startHour, endHour]);
+  }, [selectedAgents, logs, hiddenAgents, startHour, endHour]); // 의존성 배열에 startHour, endHour 추가
 
   const toggleAgent = (agent: string) => {
     if (selectedAgents.includes(agent)) setSelectedAgents(selectedAgents.filter(a => a !== agent));
     else setSelectedAgents([...selectedAgents, agent]);
   };
-  const selectAll = () => setSelectedAgents(selectedAgents.length === agentOptions.length ? [] : [...agentOptions]);
+  
+  const selectAll = () => {
+    setSelectedAgents(selectedAgents.length === agentOptions.length ? [] : [...agentOptions]);
+  };
+
+  const toggleLegendVisibility = (agent: string) => {
+    const newHidden = new Set(hiddenAgents);
+    if (newHidden.has(agent)) newHidden.delete(agent);
+    else newHidden.add(agent);
+    setHiddenAgents(newHidden);
+  };
+
+  const updatedChartOptions = useMemo<ChartOptions<'line'>>(() => {
+    const baseOptions = (commonChartOptions || {}) as any;
+    return {
+      ...baseOptions, 
+      maintainAspectRatio: false,
+      plugins: {
+        ...baseOptions.plugins,
+        legend: { display: false },
+      },
+      scales: {
+        ...baseOptions.scales,
+        x: {
+           ...baseOptions.scales?.x,
+           ticks: { autoSkip: true, maxTicksLimit: 8 }
+        }
+      }
+    };
+  }, []); 
 
   return (
-    /* 차트 영역 A: 부동산 */
     <div className="mb-8">
         <div className="flex justify-between items-end mb-3 px-1">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-blue-600"/> 부동산별 추이(2025-12-11 17시 부터 수집)
+                <Building2 className="w-5 h-5 text-blue-600"/> 부동산별 추이
             </h2>
             <div className="relative" ref={dropdownRef}>
-                <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700">
-                    {selectedAgents.length === agentOptions.length ? "전체 부동산 선택됨" : `${selectedAgents.length}개 선택됨`}
+                <button 
+                    onClick={() => setIsFilterOpen(!isFilterOpen)} 
+                    className="text-xs font-medium bg-white border border-gray-300 px-3 py-1.5 rounded-md flex items-center gap-2 hover:bg-gray-50 text-gray-700"
+                >
+                    {selectedAgents.length === agentOptions.length 
+                        ? "전체 부동산 선택됨" 
+                        : `${selectedAgents.length}개 선택됨`}
                     <ChevronDown className="w-3 h-3"/>
                 </button>
                 {isFilterOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px]">
-                        <div className="p-2 border-b bg-gray-50 sticky top-0"><label className="flex items-center gap-2 text-xs font-bold cursor-pointer"><input type="checkbox" checked={selectedAgents.length === agentOptions.length} onChange={selectAll} className="rounded text-blue-600"/>전체 선택</label></div>
-                        <div className="overflow-y-auto p-2 custom-scrollbar">
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px] animate-in fade-in zoom-in-95 duration-100">
+                        <div className="p-2 border-b bg-gray-50 sticky top-0 bg-white z-10">
+                            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer hover:text-blue-600">
+                                <input type="checkbox" checked={selectedAgents.length === agentOptions.length && agentOptions.length > 0} onChange={selectAll} className="rounded text-blue-600"/>
+                                전체 선택
+                            </label>
+                        </div>
+                        <div className="overflow-y-auto p-2 custom-scrollbar space-y-1">
                             {agentOptions.map(opt => (
-                                <label key={opt} className="flex items-center gap-2 text-xs py-1 cursor-pointer hover:bg-blue-50 rounded px-1"><input type="checkbox" checked={selectedAgents.includes(opt)} onChange={() => toggleAgent(opt)} className="rounded text-blue-600"/><span className="truncate">{opt}</span></label>
+                                <label key={opt} className="flex items-center gap-2 text-xs py-1.5 px-1 cursor-pointer hover:bg-blue-50 rounded transition-colors">
+                                    <input type="checkbox" checked={selectedAgents.includes(opt)} onChange={() => toggleAgent(opt)} className="rounded text-blue-600"/>
+                                    <span className="truncate">{opt}</span>
+                                </label>
                             ))}
                         </div>
                     </div>
@@ -112,9 +200,49 @@ export default function AgentChartSection({ rawStats, loading, startDate, endDat
             </div>
         </div>
         
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-[350px]">
-            {loading ? <div className="h-full flex items-center justify-center text-gray-400">데이터를 불러오는 중...</div> :
-             chartData ? <Line options={commonChartOptions} data={chartData} /> : <div className="h-full flex items-center justify-center text-gray-300">데이터 없음</div>}
+        {/* 차트 + 커스텀 범례 영역 */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 h-[350px] flex gap-4">
+            {loading ? (
+                <div className="w-full h-full flex items-center justify-center text-gray-400 gap-2">
+                    데이터를 분석하고 있습니다...
+                </div>
+            ) : chartData && chartData.datasets.length > 0 ? (
+                <>
+                    {/* 왼쪽: 차트 */}
+                    <div className="flex-1 relative min-w-0">
+                        <Line options={updatedChartOptions} data={chartData} />
+                    </div>
+
+                    {/* 오른쪽: 커스텀 범례 */}
+                    {/* [수정됨] w-48 -> w-72 (너비 증가), border-l 제거 */}
+                    <div className="w-50 pl-1 overflow-y-auto custom-scrollbar flex flex-col gap-1.5 pr-1">
+                        {chartData.datasets.map((dataset) => {
+                            const isHidden = hiddenAgents.has(dataset.label as string);
+                            return (
+                                <div 
+                                    key={dataset.label} 
+                                    onClick={() => toggleLegendVisibility(dataset.label as string)}
+                                    className={`flex items-center gap-2 text-xs cursor-pointer px-2 py-1 rounded transition-colors hover:bg-gray-50 ${isHidden ? 'opacity-40' : 'opacity-100'}`}
+                                >
+                                    <span 
+                                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                        style={{ backgroundColor: dataset.borderColor as string }}
+                                    ></span>
+                                    {/* truncate 유지하되 너비가 넓어져서 웬만하면 다 보임 */}
+                                    <span className={`truncate ${isHidden ? 'line-through text-gray-500' : 'text-gray-700 font-medium'}`} title={dataset.label}>
+                                        {dataset.label}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </>
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-300 flex-col gap-2">
+                    <Building2 className="w-8 h-8 opacity-20"/>
+                    <span>표시할 부동산 데이터가 없습니다.</span>
+                </div>
+            )}
         </div>
     </div>
   );

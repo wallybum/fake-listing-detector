@@ -5,13 +5,13 @@ import { LayoutDashboard } from 'lucide-react';
 
 // supabase 및 타입 불러오기
 import { supabase } from '../utils/supabaseClient';
-import { StatData } from '../utils/types'; // RealEstateLog 타입은 여기서 안 쓰므로 제거해도 됨
+import { StatData, RealEstateLog } from '../utils/types'; // [복구] RealEstateLog 타입 필요
 
 // 컴포넌트 불러오기
 import FilterControls from '../components/FilterControls';
 import AgentChartSection from '../components/AgentChartSection';
 import DongChartSection from '../components/DongChartSection';
-import ListingLifecycleAnalysis from '../components/ListingLifecycleAnalysis'; // [변경] 리스트 컴포넌트 교체
+import ListingLifecycleAnalysis from '../components/ListingLifecycleAnalysis';
 
 export default function Dashboard() {
   // --- 상태 관리 ---
@@ -21,11 +21,10 @@ export default function Dashboard() {
   const [endHour, setEndHour] = useState<string>('23');
   const [tradeType, setTradeType] = useState<string>('매매');
 
-  // [삭제됨] logs 상태는 이제 필요 없음!
-  // const [logs, setLogs] = useState<RealEstateLog[]>([]); 
+  // [복구됨] 차트(AgentChartSection)를 그리기 위해 원본 로그 데이터가 필요합니다.
+  const [logs, setLogs] = useState<RealEstateLog[]>([]); 
 
-  // 차트용 통계 데이터 상태
-  const [rawAgentStats, setRawAgentStats] = useState<StatData[]>([]);
+  // 동별 차트는 아직 통계 데이터(RPC)를 사용한다면 유지
   const [rawDongStats, setRawDongStats] = useState<StatData[]>([]);
   
   const [loading, setLoading] = useState<boolean>(true);
@@ -56,22 +55,35 @@ export default function Dashboard() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // 1. 차트용 통계 데이터 조회 (RPC)
-      const { data: agentStats, error: agentError } = await supabase
-        .rpc('get_agent_stats', { start_d: startDate, end_d: endDate, trade_t: tradeType });
-      if (agentError) console.error("Agent RPC Error:", agentError);
+      // ----------------------------------------------------------------
+      // [복구 및 수정] 차트용 원본 로그 조회
+      // ----------------------------------------------------------------
+      let query = supabase
+        .from('real_estate_logs')
+        .select('*')
+        .gte('crawl_date', startDate)
+        .lte('crawl_date', endDate)
+        .order('id', { ascending: true }); // 차트 그리기 좋게 시간순 정렬 권장
 
+      if (tradeType !== 'all') {
+        query = query.eq('trade_type', tradeType);
+      }
+      
+      // 대량 데이터 조회 시 성능 고려 (필요시 limit 조절)
+      // query = query.limit(10000);
+
+      const { data: logData, error: logError } = await query;
+      
+      if (logError) throw logError;
+      if (logData) setLogs(logData as RealEstateLog[]);
+
+      // ----------------------------------------------------------------
+      // 동별 통계 (아직 RPC를 사용한다면 유지, 이것도 로그 기반으로 바꿀거면 삭제 가능)
+      // ----------------------------------------------------------------
       const { data: dongStats, error: dongError } = await supabase
         .rpc('get_dong_stats', { start_d: startDate, end_d: endDate, trade_t: tradeType });
+      
       if (dongError) console.error("Dong RPC Error:", dongError);
-
-      // [삭제됨] 여기서 하던 리스트(logs) 조회 로직은 이제 ListingLifecycleAnalysis 컴포넌트가 알아서 함!
-      /* const listQuery = supabase...
-      const { data: listData } = await listQuery;
-      if (listData) setLogs(listData); 
-      */
-
-      if (agentStats) setRawAgentStats(agentStats);
       if (dongStats) setRawDongStats(dongStats);
 
     } catch (error) {
@@ -98,7 +110,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 1. 필터 컨트롤러 영역 (차트용) */}
+        {/* 1. 필터 컨트롤러 영역 */}
         <FilterControls 
             startDate={startDate} setStartDate={setStartDate}
             endDate={endDate} setEndDate={setEndDate}
@@ -108,28 +120,18 @@ export default function Dashboard() {
             onSearch={fetchAllData}
         />
 
-        {/* 2. 차트 영역 A: 부동산 */}
-        <AgentChartSection 
-            rawStats={rawAgentStats} 
-            loading={loading}
-            startDate={startDate}
-            endDate={endDate}
-            startHour={startHour}
-            endHour={endHour}
-        />
+        {/* 2. 차트 영역 A: 부동산 (이제 logs를 받음) */}
+        <AgentChartSection logs={logs} loading={loading} startHour={startHour}
+            endHour={endHour}/>
 
-        {/* 3. 차트 영역 B: 동 */}
+        {/* 3. 차트 영역 B: 동 (아직 RPC 통계 사용 중) */}
+        {/* 만약 동 차트도 로그 기반으로 바꿨다면 logs={logs}로 넘겨줘야 함 */}
         <DongChartSection 
-            rawStats={rawDongStats} 
+            logs={logs}  // [중요] rawStats 대신 logs 전달
             loading={loading}
-            startDate={startDate}
-            endDate={endDate}
-            startHour={startHour}
-            endHour={endHour}
         />
 
-        {/* 4. [변경] 하단 리스트 (독립형 컴포넌트 사용) */}
-        {/* props로 logs를 넘기지 않습니다. */}
+        {/* 4. 하단 리스트 (독립적 데이터 로딩) */}
         <ListingLifecycleAnalysis />
 
       </div>
