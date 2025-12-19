@@ -189,9 +189,6 @@ export default function AgentChartSection({
             enabled: true,
             mode: 'nearest',   // 툴팁도 'nearest' 모드로
             intersect: false,
-            
-            // [삭제] 배경색 설정 삭제 (기본 하얀/반투명 스타일로 원복)
-            // backgroundColor: 'rgba(0, 0, 0, 0.8)', 
         }
       },
       scales: {
@@ -223,7 +220,7 @@ export default function AgentChartSection({
           {isFilterOpen && (
             <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px] animate-in fade-in zoom-in-95 duration-100">
               <div className="p-2 border-b bg-gray-50 sticky top-0 bg-white z-10">
-                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer hover:text-blue-600">
+                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer hover:text-blue-600 text-gray-900">
                   <input
                     type="checkbox"
                     checked={
@@ -240,7 +237,7 @@ export default function AgentChartSection({
                 {agentOptions.map((opt) => (
                   <label
                     key={opt}
-                    className="flex items-center gap-2 text-xs py-1.5 px-1 cursor-pointer hover:bg-blue-50 rounded transition-colors"
+                    className="flex items-center gap-2 text-xs py-1.5 px-1 cursor-pointer hover:bg-blue-50 rounded transition-colors text-gray-900"
                   >
                     <input
                       type="checkbox"

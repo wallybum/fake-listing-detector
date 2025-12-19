@@ -160,14 +160,14 @@ export default function DongChartSection({ logs, loading }: Props) {
                 {isFilterOpen && (
                     <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 flex flex-col max-h-[250px] animate-in fade-in zoom-in-95 duration-100">
                          <div className="p-2 border-b bg-gray-50 sticky top-0 bg-white z-10">
-                            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer hover:text-green-600">
+                            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer hover:text-green-600 text-gray-900">
                                 <input type="checkbox" checked={selectedDongs.length === dongOptions.length && dongOptions.length > 0} onChange={selectAll} className="rounded text-green-600"/>
                                 전체 선택
                             </label>
                         </div>
                         <div className="overflow-y-auto p-2 custom-scrollbar space-y-1">
                             {dongOptions.map(opt => (
-                                <label key={opt} className="flex items-center gap-2 text-xs py-1.5 px-1 cursor-pointer hover:bg-green-50 rounded transition-colors">
+                                <label key={opt} className="flex items-center gap-2 text-xs py-1.5 px-1 cursor-pointer hover:bg-green-50 rounded transition-colors text-gray-900">
                                     <input type="checkbox" checked={selectedDongs.includes(opt)} onChange={() => toggleDong(opt)} className="rounded text-green-600"/>
                                     <span className="truncate">{opt}</span>
                                 </label>

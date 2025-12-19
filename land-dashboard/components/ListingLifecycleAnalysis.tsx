@@ -732,7 +732,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
                 value={localStartDate}
                 // [수정] 핸들러 교체
                 onChange={(e) => handleDateChange("start", e.target.value)}
-                className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer"
+                className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
               />
               <span className="text-gray-400">~</span>
               <input
@@ -740,7 +740,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
                 value={localEndDate}
                 // [수정] 핸들러 교체
                 onChange={(e) => handleDateChange("end", e.target.value)}
-                className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer"
+                className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900"
               />
             </div>
           </div>
@@ -786,7 +786,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
               placeholder="동, 부동산, 번호 검색"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg outline-none focus:border-blue-500"
+              className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-lg outline-none focus:border-blue-500 text-gray-900"
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
