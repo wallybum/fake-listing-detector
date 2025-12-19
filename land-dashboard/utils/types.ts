@@ -8,6 +8,7 @@ export interface RealEstateLog {
   trade_type: string;
   crawl_time: string;
   crawl_date: string;
+  provider: string;
 }
 
 export interface StatData {
