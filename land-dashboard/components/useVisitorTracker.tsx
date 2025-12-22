@@ -1,19 +1,34 @@
 "use client";
 
-import { useEffect,useRef } from "react";
+import { useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import UAParser from "ua-parser-js";
 import { supabase } from "../utils/supabaseClient";
 
-// [수정] 함수 이름은 그대로 두거나 VisitorTracker로 바꿔도 됩니다.
-// 핵심은 return null; 을 추가해서 '컴포넌트'로 만드는 것입니다.
 export default function VisitorTracker() {
   const hasRun = useRef(false);
 
+  /**
+   * [추가] 한국 시간(KST) 날짜 문자열 생성 함수
+   * 오전 9시 전에도 오늘 날짜를 정확히 인식하게 합니다.
+   */
+  const getKSTDate = () => {
+    const now = new Date();
+    return new Intl.DateTimeFormat("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: "Asia/Seoul",
+    })
+      .format(now)
+      .replace(/\. /g, "-")
+      .replace(/\./g, "");
+  };
+
   useEffect(() => {
     if (hasRun.current) return;
-
     hasRun.current = true;
+
     const trackVisitor = async () => {
       if (typeof window === "undefined") return;
 
@@ -24,9 +39,11 @@ export default function VisitorTracker() {
           localStorage.setItem("site_visitor_id", visitorId);
         }
 
-        const today = new Date().toISOString().split("T")[0];
+        // [수정] ISOString 대신 한국 시간 함수 사용
+        const today = getKSTDate(); 
         const lastVisitDate = localStorage.getItem("last_visit_date");
 
+        // 오늘 이미 방문 도장을 찍었다면 종료
         if (lastVisitDate === today) return;
 
         const parser = new UAParser();
@@ -37,6 +54,7 @@ export default function VisitorTracker() {
         const osName = result.os.name;
         const osVersion = result.os.version;
 
+        // DB 저장 (visited_at은 DB 설정에 따라 자동 생성됨)
         const { error } = await supabase.from("visit_logs").insert({
           visitor_id: visitorId,
           device_type: deviceType,
@@ -46,8 +64,9 @@ export default function VisitorTracker() {
         });
 
         if (!error) {
+          // [수정] 성공 시 로컬 스토리지에 한국 날짜로 저장
           localStorage.setItem("last_visit_date", today);
-          console.log("📈 방문자 집계 완료");
+          console.log("📈 방문자 집계 완료 (KST 기준)");
         }
       } catch (err) {
         console.error(err);
@@ -57,6 +76,5 @@ export default function VisitorTracker() {
     trackVisitor();
   }, []);
 
-  // ★ 핵심: 화면에 그릴 건 없으니 null을 반환합니다.
   return null;
 }

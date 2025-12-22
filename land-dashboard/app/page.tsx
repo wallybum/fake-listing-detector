@@ -13,7 +13,7 @@ import AgentChartSection from "../components/AgentChartSection";
 import DongChartSection from "../components/DongChartSection";
 import ListingLifecycleAnalysis from "../components/ListingLifecycleAnalysis";
 
-// [추가] 방문자 기록 저장용 컴포넌트 (파일 경로가 맞는지 꼭 확인하세요!)
+// 방문자 기록 저장용 컴포넌트
 import VisitorTracker from "../components/useVisitorTracker";
 
 export default function Dashboard() {
@@ -32,17 +32,35 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [visitorCount, setVisitorCount] = useState<number>(0);
 
+  /**
+   * [추가] 한국 시간(KST) 기준으로 'YYYY-MM-DD'를 가져오는 함수
+   * ISOString을 사용하면 오전 9시 전까지 어제 날짜로 나오는 문제를 해결합니다.
+   */
+  const getKSTToday = () => {
+    const now = new Date();
+    return new Intl.DateTimeFormat("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: "Asia/Seoul",
+    })
+      .format(now)
+      .replace(/\. /g, "-")
+      .replace(/\./g, "");
+  };
+
   // 1. 초기화 (오늘 날짜 세팅 및 메타데이터 조회)
   useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
+    // 한국 시간 기준으로 오늘 날짜 설정
+    const today = getKSTToday();
     setStartDate(today);
     setEndDate(today);
 
-    // 메타데이터(시간) 조회
+    // 메타데이터(수집 시간) 조회
     fetchCrawlMetadata();
     
-    // [추가] 방문자 수(카운트) 조회 함수 호출
-    fetchVisitorCount();
+    // 오늘의 방문자 수 조회 (오늘 날짜 인자 전달)
+    fetchVisitorCount(today);
   }, []);
 
   // 2. 날짜 변경 시 데이터 조회
@@ -52,18 +70,26 @@ export default function Dashboard() {
     }
   }, [startDate, endDate]);
 
-  // [추가] 방문자 수 조회 함수 (SELECT count)
-  const fetchVisitorCount = async () => {
+  /**
+   * [수정] 오늘의 방문자 수 조회 함수
+   * DB의 UTC 시간을 한국 시간 범위(00:00~23:59)로 필터링하여 정확한 '오늘'의 숫자를 가져옵니다.
+   */
+  const fetchVisitorCount = async (targetDate?: string) => {
     try {
-      // 데이터 본문은 안 가져오고(head: true), 개수만 셉니다(count: exact)
+      const date = targetDate || startDate || getKSTToday();
+      
       const { count, error } = await supabase
         .from("visit_logs")
-        .select("*", { count: "exact", head: true });
+        .select("*", { count: "exact", head: true })
+        // 한국 시간대(+09:00)를 명시하여 DB의 UTC 시간과 정확히 비교합니다.
+        .gte("visited_at", `${date}T00:00:00+09:00`)
+        .lte("visited_at", `${date}T23:59:59+09:00`);
 
       if (error) {
         console.error("Visitor Count Error:", error);
-      } else if (count !== null) {
-        setVisitorCount(count);
+      } else {
+        // null 방지를 위해 기본값 0 설정
+        setVisitorCount(count || 0);
       }
     } catch (e) {
       console.error("Fetch Visitor Critical Error:", e);
@@ -134,9 +160,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
       
-      {/* [추가] VisitorTracker 컴포넌트 삽입 
-        - 화면에는 아무것도 표시하지 않지만(null), 내부적으로 방문 로직을 수행합니다.
-      */}
+      {/* 방문 기록 저장 컴포넌트 */}
       <VisitorTracker />
 
       <div className="max-w-7xl mx-auto">
@@ -148,19 +172,16 @@ export default function Dashboard() {
           </h1>
 
           <div className="flex flex-col md:flex-row gap-2 md:items-center">
-            {/* 방문자 수 표시 */}
+            {/* 방문자 수 표시 (한국 자정 기준 초기화됨) */}
             <div className="px-3 py-1 bg-purple-50 rounded-full text-xs font-medium text-purple-600 border border-purple-100 flex items-center gap-1 self-start md:self-auto">
               <Users className="w-3 h-3" />
-              {/* 숫자가 0일 때도 0명으로 표시하거나, 로딩 중이면 '-'로 표시 가능 */}
-              <span>오늘의 방문자: {visitorCount > 0 ? visitorCount.toLocaleString() : "-"}명</span>
+              <span>오늘의 방문자: {visitorCount.toLocaleString()}명</span>
             </div>
 
-            {/* 최초 수집 시간 표시 */}
             <div className="px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-500 border border-gray-200 self-start md:self-auto">
               최초 수집: {firstUpdated || "-"}
             </div>
 
-            {/* 마지막 수집 시간 표시 */}
             <div className="px-3 py-1 bg-blue-50 rounded-full text-xs font-medium text-blue-600 border border-blue-100 self-start md:self-auto">
               최근 수집: {lastUpdated || "-"}
             </div>
