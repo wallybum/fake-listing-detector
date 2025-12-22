@@ -205,6 +205,18 @@ export default function ListingLifecycleAnalysis({}: Props) {
       
       const normalizePrice = (p: string) => p.replace(/\s+/g, "").replace(/,/g, "").trim();
 
+      // [수정] 가격 파싱 함수 (억 단위 처리)
+      const parsePriceToNumber = (priceStr: string) => {
+        const clean = priceStr.replace(/\s+/g, "").replace(/,/g, "");
+        if (clean.includes("억")) {
+           const parts = clean.split("억");
+           const uk = parseInt(parts[0] || "0", 10);
+           const rest = parseInt(parts[1] || "0", 10);
+           return uk * 10000 + rest; // 만원 단위로 변환
+        }
+        return parseInt(clean.replace(/[^0-9]/g, "") || "0", 10);
+      };
+
       const prices = new Set(items.map((i) => normalizePrice(i.price)));
       const owners = new Set(items.map((i) => String(!!i.is_owner))); 
       const dates = new Set(items.map((i) => (i as any).confirm_date || ""));
@@ -214,8 +226,9 @@ export default function ListingLifecycleAnalysis({}: Props) {
       const has_date_change = dates.size > 1;
       const has_history_change = has_price_change || has_owner_change || has_date_change;
       
-      const initialPriceVal = parseInt(firstItem.price.replace(/[^0-9]/g, ""));
-      const currentPriceVal = parseInt(lastItem.price.replace(/[^0-9]/g, ""));
+      // [수정] 가격 비교 로직에 새 함수 적용
+      const initialPriceVal = parsePriceToNumber(firstItem.price);
+      const currentPriceVal = parsePriceToNumber(lastItem.price);
       
       let priceDir: "up" | "down" | "same" | "fluctuated" = "same";
       if (currentPriceVal > initialPriceVal) priceDir = "up";
@@ -239,13 +252,8 @@ export default function ListingLifecycleAnalysis({}: Props) {
           }
       });
 
-      // =================================================================================
-      // [수정] 타임라인 가지치기 (Trimming)
-      // "최초 수집" 이전의 'missing'이나 'failed'는 '존재하지 않음'이므로 제거합니다.
-      // rawTimeline은 [최신(index 0) ... -> 과거(index N)] 순서입니다.
-      // =================================================================================
+      // 타임라인 가지치기 (최초 수집 이전 데이터 제거)
       let firstCollectedIndex = -1;
-      // 가장 과거(배열의 끝)부터 최신(배열의 앞)으로 오면서 처음 만나는 'collected'를 찾습니다.
       for (let i = rawTimeline.length - 1; i >= 0; i--) {
           if (rawTimeline[i].status === 'collected') {
               firstCollectedIndex = i;
@@ -255,16 +263,12 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
       let validTimeline: TimelineItem[] = [];
       if (firstCollectedIndex !== -1) {
-          // 최초 수집 시점(firstCollectedIndex)까지만 자르고, 그 뒤(더 과거)는 버립니다.
           validTimeline = rawTimeline.slice(0, firstCollectedIndex + 1);
       } else {
-          // 수집된 적이 한 번도 없는 경우 (이론상 없겠지만 안전장치)
            validTimeline = [];
       }
-      // =================================================================================
 
-      // [2] 재등록(Relisted) 판단 로직 (validTimeline 사용)
-      // 조건: 최신(Collected) -> 과거(Missing=삭제됨) -> 더과거(Collected=있었음)
+      // [2] 재등록(Relisted) 판단 로직
       let is_relisted = false;
       let stage = 0;
 
@@ -479,7 +483,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
                                 const isGrouped = log.count > 1;
                                 const isSameDateGroup = isGrouped && log.rangeStartDate === log.date;
                                 
-                                // [수정] 마지막 그룹(=과거 끝자락)인지 확인
                                 const isLastGroup = idx === item.display_timeline.length - 1;
 
                                 return (
@@ -513,7 +516,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
                                                   </span>
                                                 )}
                                                 
-                                                {/* [수정] 라벨 표기: 마지막 항목은 '최초 수집됨'으로 변경 */}
                                                 {log.status === "collected" ? (
                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${isPriceChanged ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-white text-gray-600 border-gray-200"}`}>
                                                         {isLastGroup ? "🎉 최초 수집됨" : (isPriceChanged ? "⚡ 가격변경" : "수집됨")}
