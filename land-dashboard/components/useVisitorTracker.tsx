@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect,useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import UAParser from "ua-parser-js";
 import { supabase } from "../utils/supabaseClient";
@@ -8,7 +8,12 @@ import { supabase } from "../utils/supabaseClient";
 // [수정] 함수 이름은 그대로 두거나 VisitorTracker로 바꿔도 됩니다.
 // 핵심은 return null; 을 추가해서 '컴포넌트'로 만드는 것입니다.
 export default function VisitorTracker() {
+  const hasRun = useRef(false);
+
   useEffect(() => {
+    if (hasRun.current) return;
+
+    hasRun.current = true;
     const trackVisitor = async () => {
       if (typeof window === "undefined") return;
 
