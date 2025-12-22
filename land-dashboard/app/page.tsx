@@ -152,7 +152,7 @@ export default function Dashboard() {
             <div className="px-3 py-1 bg-purple-50 rounded-full text-xs font-medium text-purple-600 border border-purple-100 flex items-center gap-1 self-start md:self-auto">
               <Users className="w-3 h-3" />
               {/* 숫자가 0일 때도 0명으로 표시하거나, 로딩 중이면 '-'로 표시 가능 */}
-              <span>방문자: {visitorCount > 0 ? visitorCount.toLocaleString() : "-"}명</span>
+              <span>오늘의 방문자: {visitorCount > 0 ? visitorCount.toLocaleString() : "-"}명</span>
             </div>
 
             {/* 최초 수집 시간 표시 */}
