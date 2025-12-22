@@ -9,6 +9,8 @@ export interface RealEstateLog {
   crawl_time: string;
   crawl_date: string;
   provider: string;
+  is_owner?: boolean;
+  confirm_date?: string;
 }
 
 export interface StatData {
