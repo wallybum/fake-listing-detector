@@ -575,7 +575,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-gray-600 bg-white px-2 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
                 <input type="checkbox" checked={hideFailed} onChange={(e) => setHideFailed(e.target.checked)} className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <EyeOff className="w-3 h-3 text-gray-500" />
-                <span>실패숨김</span>
+                <span>수집 실패 항목 숨김</span>
             </label>
           </div>
           <div className="relative w-full md:w-60">
