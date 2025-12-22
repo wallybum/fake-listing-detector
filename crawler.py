@@ -1,7 +1,7 @@
 import os
 import json
 import time
-import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,7 +22,7 @@ KST = timezone(timedelta(hours=9))
 
 # 1. 현재 파일 위치 기준 .env.local 로드
 current_dir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(current_dir, 'land-dashboard/.env.local') # 경로 확인 필요
+env_path = os.path.join(current_dir, 'land-dashboard/.env.local') 
 
 load_result = load_dotenv(dotenv_path=env_path)
 print(f"📂 경로: {env_path}")
@@ -46,23 +46,13 @@ def refine_data(raw_data_list, trade_type, fixed_date, fixed_time):
     """
     refined_list = []
     
-    now = datetime.now()
-    today_str = now.strftime("%Y-%m-%d")
-    hour_str = f"{now.strftime('%H')}시"
-
     for item in raw_data_list:
-
-        
-        # 네이버 API 응답 키(Key) 매핑
-        # (실제 응답에 따라 키 이름은 달라질 수 있으니 .get으로 안전하게 처리)
-        
-        
-        # 가격 정보 (dealOrWarrantPrc: "15억 5,000" 형태)
+        # 가격 정보
         price_str = item.get('dealOrWarrantPrc', '')
         
         area_name = item.get('areaName', '')   # 110E-2
         area_ex = item.get('area2', '')        # 84 (전용면적)
-        floor = item.get('floorInfo', '')      # 저/22층 (API 키는 보통 floorInfo 입니다)
+        floor = item.get('floorInfo', '')      # 저/22층
         direction = item.get('direction', '')  # 남서향
         formatted_spec = f"{area_name}/{area_ex}m², {floor}, {direction}"
 
@@ -71,36 +61,21 @@ def refine_data(raw_data_list, trade_type, fixed_date, fixed_time):
              "crawl_time": fixed_time,
              "article_no": item.get('articleNo', ''),  # 매물 번호 (PK)
              "trade_type": trade_type,                 # 매매/전세
-             "price": price_str,                       # 가격 (문자열 그대로 저장)
+             "price": price_str,                       # 가격
              "dong": item.get('buildingName'),         # 동
              "spec": formatted_spec,
-             "agent": item.get('realtorName'),   # 중개업소
-             "provider": item.get('cpName'),            # 제공 업체(ex. 매경 부동산, 아실 등)
+             "agent": item.get('realtorName'),         # 중개업소
+             "provider": item.get('cpName'),           # 제공 업체
              "confirm_date": item.get('articleConfirmYmd',''), # 확인날짜
              "is_owner": item.get('verificationTypeCode') == 'OWNER' # 집주인 인증여부
         }
-        # refined_item = {
-         #   "article_no": item.get('articleNo', ''),                # 매물 번호 (PK)
-          #  "trade_type": trade_type,                               # 매매/전세
-           # "price": price_str,                                     # 가격 (문자열 그대로 저장)
-           # "dong": item.get('dongName', ''),                       # 동 이름
-        #   "floor": item.get('floorInfo', ''),                     # 층수 (예: 5/15)
-            # "spec": item.get('areaName', ''),                       # 면적 (예: 84A)
-            # "direction": item.get('direction', ''),                 # 향 (남향 등)
-            # "agent": item.get('realtorName', item.get('cpName', '')), # 중개사명
-            # "description": item.get('articleFeatureDesc', ''),      # 특징 설명
-            # "is_landlord": True if item.get('directTradYn') == 'Y' else False, # 직거래/집주인 여부
-            # "verification_date": item.get('articleConfirmYmd', ''), # 확인 일자
-            # "crawl_date": today_str,
-            # "crawl_time": hour_str
-        # }
         refined_list.append(refined_item)
     
     return refined_list
 
 def save_to_supabase(data_list):
     """
-    Supabase DB에 데이터 저장 (Upsert)
+    Supabase DB에 매물 데이터 저장 (Upsert)
     """
     if not data_list or not SUPABASE_URL:
         print("⚠️ 저장할 데이터가 없거나 DB 설정이 누락되었습니다.")
@@ -108,15 +83,38 @@ def save_to_supabase(data_list):
 
     try:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        table_name = "real_estate_logs"  # ⚠️ 실제 사용하는 테이블명으로 변경 필수!
+        table_name = "real_estate_logs" 
 
-        # upsert: article_no(PK)가 같으면 업데이트, 없으면 추가
         response = supabase.table(table_name).upsert(data_list).execute()
         
         print(f"✅ DB 저장 완료! (총 {len(data_list)}건 처리)")
         
     except Exception as e:
         print(f"❌ DB 저장 중 오류 발생: {e}")
+
+# [추가됨] 이력 기록 함수
+def save_crawl_history(date, time_str, status, count=0, error_msg=""):
+    """
+    crawl_history 테이블에 성공/실패 여부를 기록합니다.
+    """
+    if not SUPABASE_URL: return
+
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        history_data = {
+            "crawl_date": date,
+            "crawl_time": time_str,
+            "status": status,          # 'SUCCESS' 또는 'FAIL'
+            "collected_count": count,  # 수집된 개수
+            "error_message": str(error_msg)[:1000] # 에러 메시지 길이 제한
+        }
+        
+        supabase.table("crawl_history").insert(history_data).execute()
+        print(f"📝 [History] 이력 기록 완료: {status} ({count}건)")
+        
+    except Exception as e:
+        print(f"❌ 이력 기록 실패: {e}")
 
 
 # ==================================================================
@@ -131,7 +129,7 @@ class NaverLandCrawler:
     def _init_driver(self):
         """드라이버 옵션 설정"""
         options = uc.ChromeOptions()
-        options.add_argument("--headless=new") # 테스트할 땐 주석 처리 추천 (화면 보게)
+        options.add_argument("--headless=new") 
         options.add_argument("--window-size=1920,1080")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -162,9 +160,13 @@ class NaverLandCrawler:
         return driver
 
     def close(self):
-        if (self.driver):
-            print("\n👋 크롤러 종료 (브라우저 닫기)")
-            self.driver.quit()
+        # 드라이버가 존재하고 살아있을 때만 종료 시도
+        if hasattr(self, 'driver') and self.driver:
+            try:
+                print("\n👋 크롤러 종료 (브라우저 닫기)")
+                self.driver.quit()
+            except Exception:
+                pass # 이미 닫혀있으면 패스
 
     def _wait_for_loading(self):
         try:
@@ -286,44 +288,87 @@ class NaverLandCrawler:
         return data_map
 
 # ==================================================================
-# 메인 실행 블록
+# 메인 실행 블록 (재시도 + 이력 기록 통합)
 # ==================================================================
 def main():
-    crawler = NaverLandCrawler()
+    max_retries = 3  # 최대 재시도 횟수
     
+    # [중요] 시작 시간을 고정합니다. (재시도하더라도 첫 시도 시간을 기록해야 함)
     start_now = datetime.now()
     FIXED_DATE = start_now.strftime("%Y-%m-%d")
-    FIXED_TIME = start_now.strftime("%H:%M") # 분 단위까지 기록 (예: 14:00, 14:20)
+    FIXED_TIME = start_now.strftime("%H:%M")
     
-    try:
-        # 1. 크롤링 수행 (Map 형태로 반환됨)
-        sale_map = crawler.collect("매매")
-        jeonse_map = crawler.collect("전세")
-        
-        print("\n" + "="*60)
-        print(f"📝 수집 결과: 매매 {len(sale_map)}건, 전세 {len(jeonse_map)}건")
-        
-        # 2. 데이터 정제 (Map -> List 변환 후 함수 호출)
-        # .values()를 사용하여 딕셔너리의 값(데이터 객체)들만 리스트로 뽑아냅니다.
-        clean_sale = refine_data(list(sale_map.values()), "매매", FIXED_DATE, FIXED_TIME)
-        clean_jeonse = refine_data(list(jeonse_map.values()), "전세",FIXED_DATE, FIXED_TIME)
-        
-        # 3. 데이터 통합
-        final_db_data = clean_sale + clean_jeonse
-        
-        # 4. DB 저장
-        if final_db_data:
-            print(f"💾 총 {len(final_db_data)}건의 데이터를 DB에 저장합니다...")
-            save_to_supabase(final_db_data)
-        else:
-            print("⚠️ 저장할 데이터가 없습니다.")
+    final_status = "FAIL" # 기본값은 실패로 시작
+    final_count = 0
+    last_error_msg = ""
+    
+    print(f"\n🕒 작업 기준 시간: {FIXED_DATE} {FIXED_TIME}")
 
-        print("="*60)
+    for attempt in range(max_retries):
+        crawler = None 
+        try:
+            print(f"\n🚀 크롤링 시도 ({attempt + 1}/{max_retries})")
+            
+            # --- 여기서 에러가 나면 except로 점프합니다 ---
+            crawler = NaverLandCrawler()
+            
+            # 1. 크롤링 수행
+            sale_map = crawler.collect("매매")
+            jeonse_map = crawler.collect("전세")
+            
+            print(f"   📊 수집 결과: 매매 {len(sale_map)}건, 전세 {len(jeonse_map)}건")
+            
+            # 2. 데이터 정제 (고정된 시간 FIXED_TIME 사용)
+            clean_sale = refine_data(list(sale_map.values()), "매매", FIXED_DATE, FIXED_TIME)
+            clean_jeonse = refine_data(list(jeonse_map.values()), "전세", FIXED_DATE, FIXED_TIME)
+            
+            # 3. 데이터 통합
+            final_db_data = clean_sale + clean_jeonse
+            final_count = len(final_db_data)
+            
+            # 4. DB 저장
+            if final_db_data:
+                print(f"💾 총 {final_count}건의 데이터를 DB에 저장합니다...")
+                save_to_supabase(final_db_data)
+            else:
+                print("⚠️ 저장할 데이터가 0건입니다.")
 
-    except Exception as e:
-        print(f"❌ 메인 실행 중 오류: {e}")
-    finally:
-        crawler.close()
+            # 여기까지 오면 성공
+            final_status = "SUCCESS"
+            last_error_msg = "" # 성공 시 에러 메시지 초기화
+            
+            print("✨ 크롤링 및 저장이 완료되었습니다.")
+            break # 성공했으니 루프 탈출
+
+        except Exception as e:
+            print(f"\n❌ 오류 발생 (시도 {attempt + 1}): {e}")
+            last_error_msg = str(e) # 에러 메시지 보관
+            
+            # 브라우저 정리
+            if crawler:
+                try: crawler.close()
+                except: pass
+
+            # 마지막 시도가 아니면 대기 후 재시도
+            if attempt < max_retries - 1:
+                print("🔄 10초 후 재시도합니다...")
+                time.sleep(10)
+            else:
+                print("💀 최대 재시도 횟수를 초과했습니다.")
+
+    # [핵심] 성공/실패 여부에 상관없이 이력을 기록함
+    print("\n" + "="*50)
+    save_crawl_history(FIXED_DATE, FIXED_TIME, final_status, final_count, last_error_msg)
+    print("="*50)
+
+    # 마지막으로 브라우저 정리
+    if crawler:
+        try: crawler.close()
+        except: pass
+
+    # 최종 상태가 FAIL이면 시스템 종료 코드 1 반환 (Crontab 등에서 에러 인식용)
+    if final_status == "FAIL":
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
