@@ -22,7 +22,7 @@ import {
   Filter,
   AlertTriangle,
   MoreHorizontal,
-  EyeOff, // 아이콘 추가
+  EyeOff,
 } from "lucide-react";
 import { supabase } from "../utils/supabaseClient";
 import { RealEstateLog } from "../utils/types";
@@ -97,18 +97,18 @@ export default function ListingLifecycleAnalysis({}: Props) {
   const [filterIssue, setFilterIssue] = useState<"all" | "price" | "relist">("all");
   const [filterOwner, setFilterOwner] = useState<"all" | "landlord" | "agent">("all");
   
-  // [추가] 수집 실패 숨기기 상태
   const [hideFailed, setHideFailed] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
+  // [최적화] 탭(mainTab)이나 필터가 변경되어도 서버 재요청을 하지 않음 (오직 날짜/검색어 변경 시에만 실행)
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchLogs();
     }, 500);
     return () => clearTimeout(timer);
-  }, [localStartDate, localEndDate, localTradeType, searchTerm, mainTab, filterIssue]);
+  }, [localStartDate, localEndDate, localTradeType, searchTerm]); 
 
   const handleDateChange = (type: "start" | "end", newValue: string) => {
     const newStart = type === "start" ? new Date(newValue) : new Date(localStartDate);
@@ -127,37 +127,15 @@ export default function ListingLifecycleAnalysis({}: Props) {
     try {
       const term = searchTerm ? searchTerm.trim() : "";
       
-      let targetArticleNos: string[] = [];
-      let shouldUseRPC = false;
-
-      if (mainTab === "analysis" || filterIssue !== "all") {
-          shouldUseRPC = true;
-          const { data: changedIds, error: rpcError } = await supabase
-            .rpc('get_changed_articles', { 
-                start_date: localStartDate, 
-                end_date: localEndDate 
-            });
-            
-          if (rpcError) {
-              console.error("RPC Error:", rpcError);
-              shouldUseRPC = false; 
-          } else if (changedIds) {
-              targetArticleNos = changedIds.map((d: any) => d.article_no);
-          }
-      }
-
+      // [최적화] 조건에 맞는 모든 데이터를 한 번에 가져와서 메모리에서 필터링함 (RPC 사용 안 함)
       let query = supabase.from("real_estate_logs").select("*").order("id", { ascending: false });
       
+      // 1. 검색어가 있을 때 (날짜 무시하고 전체 DB 검색)
       if (term.length > 0) {
         if (/^\d+$/.test(term)) query = query.or(`article_no.eq.${term},dong.ilike.%${term}%`);
         else query = query.or(`dong.ilike.%${term}%,agent.ilike.%${term}%`);
       } 
-      else if (shouldUseRPC && targetArticleNos.length > 0) {
-        query = query
-            .gte("crawl_date", localStartDate)
-            .lte("crawl_date", localEndDate)
-            .in("article_no", targetArticleNos);
-      }
+      // 2. 검색어가 없을 때 (설정된 날짜 범위 적용)
       else {
         query = query.gte("crawl_date", localStartDate).lte("crawl_date", localEndDate);
         if (localTradeType !== "all") query = query.eq("trade_type", localTradeType);
@@ -194,6 +172,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
   const analyzedData = useMemo(() => {
     if (logs.length === 0 || crawlHistory.length === 0) return [];
 
+    // 1. 전체 크롤링 시간표 생성 (Snapshot 기준: 최신 -> 과거)
     const uniqueSnapshots = crawlHistory.map(h => `${h.crawl_date}|${h.crawl_time}`);
     uniqueSnapshots.sort((a, b) => {
       const [dateA, timeA] = a.split("|"); const [dateB, timeB] = b.split("|");
@@ -215,13 +194,14 @@ export default function ListingLifecycleAnalysis({}: Props) {
 
     const analyzed: AnalyzedListing[] = Object.keys(groups).map((key) => {
       const items = groups[key];
+      // 매물 로그 날짜순 정렬 (과거 -> 최신)
       items.sort((a, b) => {
         if (a.crawl_date !== b.crawl_date) return a.crawl_date.localeCompare(b.crawl_date);
         return a.crawl_time.localeCompare(b.crawl_time);
       });
 
-      const firstItem = items[0];
-      const lastItem = items[items.length - 1];
+      const firstItem = items[0]; // DB에 기록된 최초 데이터
+      const lastItem = items[items.length - 1]; // 최신 데이터
       
       const normalizePrice = (p: string) => p.replace(/\s+/g, "").replace(/,/g, "").trim();
 
@@ -232,7 +212,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
       const has_price_change = prices.size > 1;
       const has_owner_change = owners.size > 1;
       const has_date_change = dates.size > 1;
-
       const has_history_change = has_price_change || has_owner_change || has_date_change;
       
       const initialPriceVal = parseInt(firstItem.price.replace(/[^0-9]/g, ""));
@@ -243,7 +222,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
       else if (currentPriceVal < initialPriceVal) priceDir = "down";
       else if (has_price_change) priceDir = "fluctuated";
 
-      // 1. Raw Timeline 생성 (모든 이력 생성)
+      // [1] Raw Timeline 생성: 전체 크롤링 시간표 기준 출석 체크 (순서: 최신 -> 과거)
       const rawTimeline: TimelineItem[] = uniqueSnapshots.map((snapshotKey) => {
           const [sDate, sTime] = snapshotKey.split("|");
           const log = items.find((i) => i.crawl_date === sDate && i.crawl_time === sTime);
@@ -261,16 +240,57 @@ export default function ListingLifecycleAnalysis({}: Props) {
       });
 
       // =================================================================================
-      // [수정] 그룹핑 전 필터링 로직 추가
-      // '수집 실패 숨기기'가 켜져있으면, 그룹핑 대상에서 failed를 아예 제외시킵니다.
-      // 이렇게 하면 [수집됨] -> [실패] -> [수집됨] 구조가 [수집됨] -> [수집됨]이 되어
-      // 자연스럽게 하나의 그룹으로 합쳐집니다.
+      // [수정] 타임라인 가지치기 (Trimming)
+      // "최초 수집" 이전의 'missing'이나 'failed'는 '존재하지 않음'이므로 제거합니다.
+      // rawTimeline은 [최신(index 0) ... -> 과거(index N)] 순서입니다.
       // =================================================================================
-      const timelineToGroup = hideFailed 
-        ? rawTimeline.filter(t => t.status !== 'failed') 
-        : rawTimeline;
+      let firstCollectedIndex = -1;
+      // 가장 과거(배열의 끝)부터 최신(배열의 앞)으로 오면서 처음 만나는 'collected'를 찾습니다.
+      for (let i = rawTimeline.length - 1; i >= 0; i--) {
+          if (rawTimeline[i].status === 'collected') {
+              firstCollectedIndex = i;
+              break;
+          }
+      }
 
-      // 2. Grouping (필터링된 타임라인 기준으로 그룹핑)
+      let validTimeline: TimelineItem[] = [];
+      if (firstCollectedIndex !== -1) {
+          // 최초 수집 시점(firstCollectedIndex)까지만 자르고, 그 뒤(더 과거)는 버립니다.
+          validTimeline = rawTimeline.slice(0, firstCollectedIndex + 1);
+      } else {
+          // 수집된 적이 한 번도 없는 경우 (이론상 없겠지만 안전장치)
+           validTimeline = [];
+      }
+      // =================================================================================
+
+      // [2] 재등록(Relisted) 판단 로직 (validTimeline 사용)
+      // 조건: 최신(Collected) -> 과거(Missing=삭제됨) -> 더과거(Collected=있었음)
+      let is_relisted = false;
+      let stage = 0;
+
+      for (const item of validTimeline) {
+          if (item.status === 'failed') continue;
+
+          if (stage === 0) {
+              if (item.status === 'collected') stage = 1;
+              else if (item.status === 'missing') break; 
+          } 
+          else if (stage === 1) {
+              if (item.status === 'missing') stage = 2;
+          } 
+          else if (stage === 2) {
+              if (item.status === 'collected') {
+                  is_relisted = true;
+                  break;
+              }
+          }
+      }
+
+      // [3] 그룹핑 (Grouping)
+      const timelineToGroup = hideFailed 
+        ? validTimeline.filter(t => t.status !== 'failed') 
+        : validTimeline;
+
       const groupedTimeline: TimelineItem[] = [];
       if (timelineToGroup.length > 0) {
         let currentGroup = { ...timelineToGroup[0] };
@@ -281,14 +301,11 @@ export default function ListingLifecycleAnalysis({}: Props) {
             const isSameStatus = currentGroup.status === nextItem.status;
             const isSamePrice = normalizePrice(currentGroup.price || "") === normalizePrice(nextItem.price || "");
             
-            // 상태가 같고, 수집됨이라면 가격까지 같을 때 병합
             if (isSameStatus && (currentGroup.status !== 'collected' || isSamePrice)) {
                 currentGroup.count += 1;
-                // 과거 시간으로 범위 확장
                 currentGroup.rangeStartDate = nextItem.date;
                 currentGroup.rangeStartTime = nextItem.time;
             } else {
-                // 다르면 현재 그룹 저장 후 교체
                 groupedTimeline.push(currentGroup);
                 currentGroup = { ...nextItem };
             }
@@ -296,37 +313,17 @@ export default function ListingLifecycleAnalysis({}: Props) {
         groupedTimeline.push(currentGroup);
       }
 
-      // 3. 재등록 체크 (원본 로직 유지 - Raw Data 기준이 정확함)
-      let is_relisted = false;
-      const chronological = [...rawTimeline].reverse();
-      const firstAppearanceIdx = chronological.findIndex(t => t.status === 'collected');
-      
-      if (firstAppearanceIdx !== -1) {
-          const relevantHistory = chronological.slice(firstAppearanceIdx);
-          let hasSeenCollected = false;
-          let hasGap = false;
-          
-          for (let i = 0; i < relevantHistory.length; i++) {
-             const stat = relevantHistory[i].status;
-             if (stat === 'collected') {
-                 if (hasGap) { is_relisted = true; break; }
-                 hasSeenCollected = true;
-             } else if (stat === 'missing') {
-                 if (hasSeenCollected) { hasGap = true; }
-             }
-             // failed는 갭으로 인정하지 않으므로 무시
-          }
-      }
-
+      // 상태 결정
       let status: "active" | "deleted" | "new" = "active";
-      const latestItem = rawTimeline[0];
-      
-      if (latestItem.status === "missing") {
-          status = "deleted";
-      } else if (latestItem.status === "failed") {
-           status = "active"; 
-      } else if (items.length === 1 && uniqueSnapshots.length > 1) {
-          status = "new";
+      if (validTimeline.length > 0) {
+        const latestItem = validTimeline[0];
+        if (latestItem.status === "missing") {
+            status = "deleted";
+        } else if (latestItem.status === "failed") {
+            status = "active"; // 실패 시 일단 활성으로 가정
+        } else if (items.length === 1 && uniqueSnapshots.length > 1) {
+            status = "new";
+        }
       }
 
       return {
@@ -335,11 +332,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
         is_owner: !!(lastItem as any).is_owner,
         verification_date: (lastItem as any).confirm_date || null,
         has_history_change,
-        changes: {
-            price: has_price_change,
-            owner: has_owner_change,
-            date: has_date_change
-        },
+        changes: { price: has_price_change, owner: has_owner_change, date: has_date_change },
         is_relisted, price_direction: priceDir,
         first_seen: `${firstItem.crawl_date} ${firstItem.crawl_time}`, last_seen: `${lastItem.crawl_date} ${lastItem.crawl_time}`,
         status, 
@@ -349,7 +342,7 @@ export default function ListingLifecycleAnalysis({}: Props) {
     });
     
     return analyzed.sort((a, b) => b.last_seen.localeCompare(a.last_seen));
-  }, [logs, crawlHistory, searchTerm, hideFailed]); // hideFailed 의존성 추가
+  }, [logs, crawlHistory, searchTerm, hideFailed]);
 
   const providerOptions = useMemo(() => {
     const providers = new Set(analyzedData.map(item => item.provider));
@@ -486,6 +479,9 @@ export default function ListingLifecycleAnalysis({}: Props) {
                                 const isGrouped = log.count > 1;
                                 const isSameDateGroup = isGrouped && log.rangeStartDate === log.date;
                                 
+                                // [수정] 마지막 그룹(=과거 끝자락)인지 확인
+                                const isLastGroup = idx === item.display_timeline.length - 1;
+
                                 return (
                                     <div key={idx} className="relative pl-8 pb-3 last:pb-0 flex items-start gap-3 group/item">
                                         <div className={`absolute left-0 w-10 h-10 flex items-start justify-center z-10`}>
@@ -517,8 +513,11 @@ export default function ListingLifecycleAnalysis({}: Props) {
                                                   </span>
                                                 )}
                                                 
+                                                {/* [수정] 라벨 표기: 마지막 항목은 '최초 수집됨'으로 변경 */}
                                                 {log.status === "collected" ? (
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${isPriceChanged ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-white text-gray-600 border-gray-200"}`}>{isPriceChanged ? "⚡ 가격변경" : "수집됨"}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${isPriceChanged ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-white text-gray-600 border-gray-200"}`}>
+                                                        {isLastGroup ? "🎉 최초 수집됨" : (isPriceChanged ? "⚡ 가격변경" : "수집됨")}
+                                                    </span>
                                                 ) : log.status === "failed" ? (
                                                     <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-bold border border-gray-200 flex items-center gap-1">
                                                         <AlertTriangle className="w-3 h-3" /> 수집 실패
@@ -571,7 +570,6 @@ export default function ListingLifecycleAnalysis({}: Props) {
               <span className="text-gray-400">~</span>
               <input type="date" value={localEndDate} min={SYSTEM_LAUNCH_DATE} onChange={(e) => handleDateChange("end", e.target.value)} className="text-xs bg-transparent outline-none font-medium w-[95px] cursor-pointer text-gray-900" />
             </div>
-            {/* [추가] 수집 실패 숨기기 체크박스 */}
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-gray-600 bg-white px-2 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
                 <input type="checkbox" checked={hideFailed} onChange={(e) => setHideFailed(e.target.checked)} className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <EyeOff className="w-3 h-3 text-gray-500" />
