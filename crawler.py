@@ -174,42 +174,42 @@ class NaverLandCrawler:
         except Exception as e:
             print(f"   ⚠️ 로딩 대기 실패: {e}")
 
-    # def _reset_and_apply_filters(self, target_type):
-    #     print(f"   ⚙️ 필터 적용 중: {target_type}")
+    def _reset_and_apply_filters(self, target_type):
+        print(f"   ⚙️ 필터 적용 중: {target_type}")
         
-    #     # 1. 전체 거래방식 해제
-    #     self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) { document.querySelector('#complex_article_trad_type_filter_0').click(); }")
-    #     time.sleep(0.5)
+        # 1. 전체 거래방식 해제
+        self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_0:checked')) { document.querySelector('#complex_article_trad_type_filter_0').click(); }")
+        time.sleep(0.5)
 
-    #     # 2. 타겟 타입 설정
-    #     if (target_type == "매매"):
-    #         self.driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) { document.querySelector('#complex_article_trad_type_filter_1').click(); }")
-    #         self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_2:checked')) { document.querySelector('#complex_article_trad_type_filter_2').click(); }")
+        # 2. 타겟 타입 설정
+        if (target_type == "매매"):
+            self.driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_1:checked')) { document.querySelector('#complex_article_trad_type_filter_1').click(); }")
+            self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_2:checked')) { document.querySelector('#complex_article_trad_type_filter_2').click(); }")
         
-    #     elif (target_type == "전세"):
-    #         self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_1:checked')) { document.querySelector('#complex_article_trad_type_filter_1').click(); }")
-    #         self.driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_2:checked')) { document.querySelector('#complex_article_trad_type_filter_2').click(); }")
+        elif (target_type == "전세"):
+            self.driver.execute_script("if(document.querySelector('#complex_article_trad_type_filter_1:checked')) { document.querySelector('#complex_article_trad_type_filter_1').click(); }")
+            self.driver.execute_script("if(!document.querySelector('#complex_article_trad_type_filter_2:checked')) { document.querySelector('#complex_article_trad_type_filter_2').click(); }")
 
-    #     time.sleep(1)
+        time.sleep(1)
 
-    #     # 3. 묶기 해제
-    #     try:
-    #         group_chk = self.driver.find_element(By.ID, "address_group2")
-    #         if (group_chk.is_selected()):
-    #             self.driver.execute_script("arguments[0].click();", self.driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
-    #     except:
-    #         pass
+        # 3. 묶기 해제
+        try:
+            group_chk = self.driver.find_element(By.ID, "address_group2")
+            if (group_chk.is_selected()):
+                self.driver.execute_script("arguments[0].click();", self.driver.find_element(By.CSS_SELECTOR, "label[for='address_group2']"))
+        except:
+            pass
 
-    #     # 4. 가격순 정렬
-    #     try:
-    #         self.driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
-    #     except:
-    #         pass
+        # 4. 가격순 정렬
+        try:
+            self.driver.find_element(By.CSS_SELECTOR, "a.sorting_type[data-nclk='TAA.price']").click()
+        except:
+            pass
         
-    #     time.sleep(3)
+        time.sleep(3)
 
     # 수정 
-    def _reset_and_apply_filters(self, target_type):
+    # def _reset_and_apply_filters(self, target_type):
         print(f"   ⚙️ 필터 적용 중: {target_type}")
     
         # [수정] 요소가 로드될 때까지 명시적으로 기다림
@@ -253,7 +253,7 @@ class NaverLandCrawler:
         except Exception as e:
             print(f"   ⚠️ 필터 적용 중 오류 발생 (무시하고 진행): {e}")
 
-    # def _scroll_and_collect_packets(self, target_type):
+    def _scroll_and_collect_packets(self, target_type):
     #     try:
     #         list_area = self.driver.find_element(By.ID, "articleListArea")
     #     except:
@@ -318,96 +318,163 @@ class NaverLandCrawler:
     #     print(f"   ✅ [{target_type}] 1차 수집 완료: {len(collected_data_map)}건 (중복제거됨)")
     #     return collected_data_map
 
-    def _scroll_and_collect_packets(self, target_type):
+    # def _scroll_and_collect_packets(self, target_type):
+    #     print(f"   🖱️ 스크롤 및 데이터 패킷 수집 시작 ({target_type})")
+        
+    #     # 1. 목록 영역이 나타날 때까지 확실히 대기
+    #     try:
+    #         wait = WebDriverWait(self.driver, 20)
+    #         # articleListArea가 메모리에 로드될 때까지 기다림
+    #         list_area = wait.until(EC.presence_of_element_located((By.ID, "articleListArea")))
+            
+    #         # 목록 영역에 확실히 포커스를 주기 위해 JS로 클릭 및 스크롤 위치 초기화
+    #         self.driver.execute_script("arguments[0].focus();", list_area)
+    #         ActionChains(self.driver).move_to_element(list_area).click().perform()
+    #     except Exception as e:
+    #         print(f"   ⚠️ 목록 영역 로딩 실패: {e}")
+    #         # 영역을 못 찾으면 바디라도 잡지만, 수집 확률이 낮아짐
+    #         try:
+    #             list_area = self.driver.find_element(By.TAG_NAME, "body")
+    #         except:
+    #             return {}
+
+    #     collected_data_map = {}
+    #     last_count = 0
+    #     same_loop = 0
+        
+    #     for i in range(50): # 최대 50회 스크롤
+    #         # 현재 로드된 매물 아이템들 확인
+    #         items = self.driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
+    #         curr_count = len(items)
+            
+    #         if curr_count > 0:
+    #             # [개선] 마지막 아이템으로 스크롤하여 다음 데이터 로딩 유도
+    #             try:
+    #                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", items[-1])
+    #             except:
+    #                 pass
+    #         else:
+    #             # 아이템이 아예 없으면 영역 전체를 아래로 강제 스크롤
+    #             self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
+            
+    #         # 네이버 API 응답 시간을 위해 대기 시간을 2초로 소폭 증가
+    #         time.sleep(2.0)
+
+    #         # --- 네트워크 패킷 분석 로직 ---
+    #         logs = self.driver.get_log("performance")
+    #         for entry in logs:
+    #             try:
+    #                 log_json = json.loads(entry["message"])
+    #                 message = log_json["message"]
+                    
+    #                 if (message["method"] == "Network.responseReceived"):
+    #                     resp_url = message["params"]["response"]["url"]
+                        
+    #                     # 실제 매물 데이터 API 주소인지 확인
+    #                     if ("api/articles/complex" in resp_url and "realEstateType" in resp_url):
+    #                         request_id = message["params"]["requestId"]
+    #                         try:
+    #                             response_body = self.driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
+    #                             data = json.loads(response_body['body'])
+    #                             articles = data.get('articleList', [])
+                                
+    #                             for item in articles:
+    #                                 # 필터링 조건 (타입 일치, 완료 제외, 정상 매물만)
+    #                                 if (item.get("tradeTypeName") != target_type): continue
+    #                                 if (item.get("tradeCompleteYN") == "Y"): continue
+    #                                 if (item.get("articleStatus") != "R0"): continue
+                                    
+    #                                 article_no = item.get('articleNo')
+    #                                 if (article_no):
+    #                                     collected_data_map[article_no] = item
+    #                         except:
+    #                             continue
+    #             except:
+    #                 continue
+            
+    #         # 스크롤을 해도 더 이상 매물이 늘어나지 않으면 루프 탈출
+    #         if (curr_count == last_count and curr_count > 0):
+    #             same_loop += 1
+    #             if (same_loop >= 5): # 5회 연속 변화 없으면 끝까지 온 것으로 간주
+    #                 break
+    #         else:
+    #             same_loop = 0
+            
+    #         last_count = curr_count
+            
+    #         # 진행 상황 출력 (너무 자주 찍히지 않게 5회마다)
+    #         if i % 5 == 0:
+    #             print(f"   ... 스크롤 중 ({i}/50), 현재 수집: {len(collected_data_map)}건")
+
+    #     print(f"   ✅ [{target_type}] 수집 완료: {len(collected_data_map)}건")
+    #     return collected_data_map
+
+    # def _scroll_and_collect_packets(self, target_type):
         print(f"   🖱️ 스크롤 및 데이터 패킷 수집 시작 ({target_type})")
         
-        # 1. 목록 영역이 나타날 때까지 확실히 대기
         try:
-            wait = WebDriverWait(self.driver, 20)
-            # articleListArea가 메모리에 로드될 때까지 기다림
-            list_area = wait.until(EC.presence_of_element_located((By.ID, "articleListArea")))
-            
-            # 목록 영역에 확실히 포커스를 주기 위해 JS로 클릭 및 스크롤 위치 초기화
-            self.driver.execute_script("arguments[0].focus();", list_area)
-            ActionChains(self.driver).move_to_element(list_area).click().perform()
-        except Exception as e:
-            print(f"   ⚠️ 목록 영역 로딩 실패: {e}")
-            # 영역을 못 찾으면 바디라도 잡지만, 수집 확률이 낮아짐
-            try:
-                list_area = self.driver.find_element(By.TAG_NAME, "body")
-            except:
-                return {}
+            list_area = self.driver.find_element(By.ID, "articleListArea")
+        except:
+            return {}
 
         collected_data_map = {}
         last_count = 0
-        same_loop = 0
+        no_change_intervals = 0  # 데이터가 안 늘어나는 횟수
         
-        for i in range(50): # 최대 50회 스크롤
-            # 현재 로드된 매물 아이템들 확인
-            items = self.driver.find_elements(By.CSS_SELECTOR, "div.item:not(.item--child)")
-            curr_count = len(items)
-            
-            if curr_count > 0:
-                # [개선] 마지막 아이템으로 스크롤하여 다음 데이터 로딩 유도
-                try:
-                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", items[-1])
-                except:
-                    pass
-            else:
-                # 아이템이 아예 없으면 영역 전체를 아래로 강제 스크롤
-                self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", list_area)
-            
-            # 네이버 API 응답 시간을 위해 대기 시간을 2초로 소폭 증가
-            time.sleep(2.0)
+        # 1. 픽셀 단위로 조금씩 내리며 브라우저가 '스크롤'을 인식하게 함
+        scroll_y = 0
+        max_scroll_attempts = 60 # 최대 시도 횟수 늘림
 
-            # --- 네트워크 패킷 분석 로직 ---
+        for i in range(max_scroll_attempts):
+            # 조금씩 아래로 이동 (트리거 유도)
+            scroll_y += 1000 
+            self.driver.execute_script(f"arguments[0].scrollTop = {scroll_y}", list_area)
+            
+            # API 응답이 오기까지 충분히 대기 (매우 중요)
+            time.sleep(2.0) 
+
+            # 네트워크 로그 확인
             logs = self.driver.get_log("performance")
             for entry in logs:
                 try:
                     log_json = json.loads(entry["message"])
                     message = log_json["message"]
-                    
-                    if (message["method"] == "Network.responseReceived"):
+                    if message["method"] == "Network.responseReceived":
                         resp_url = message["params"]["response"]["url"]
-                        
-                        # 실제 매물 데이터 API 주소인지 확인
-                        if ("api/articles/complex" in resp_url and "realEstateType" in resp_url):
+                        if "api/articles/complex" in resp_url:
                             request_id = message["params"]["requestId"]
                             try:
                                 response_body = self.driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
                                 data = json.loads(response_body['body'])
-                                articles = data.get('articleList', [])
-                                
-                                for item in articles:
-                                    # 필터링 조건 (타입 일치, 완료 제외, 정상 매물만)
-                                    if (item.get("tradeTypeName") != target_type): continue
-                                    if (item.get("tradeCompleteYN") == "Y"): continue
-                                    if (item.get("articleStatus") != "R0"): continue
-                                    
-                                    article_no = item.get('articleNo')
-                                    if (article_no):
-                                        collected_data_map[article_no] = item
-                            except:
-                                continue
-                except:
-                    continue
-            
-            # 스크롤을 해도 더 이상 매물이 늘어나지 않으면 루프 탈출
-            if (curr_count == last_count and curr_count > 0):
-                same_loop += 1
-                if (same_loop >= 5): # 5회 연속 변화 없으면 끝까지 온 것으로 간주
-                    break
-            else:
-                same_loop = 0
-            
-            last_count = curr_count
-            
-            # 진행 상황 출력 (너무 자주 찍히지 않게 5회마다)
-            if i % 5 == 0:
-                print(f"   ... 스크롤 중 ({i}/50), 현재 수집: {len(collected_data_map)}건")
+                                for item in data.get('articleList', []):
+                                    if item.get("tradeTypeName") == target_type:
+                                        collected_data_map[item.get('articleNo')] = item
+                            except: pass
+                except: pass
 
-        print(f"   ✅ [{target_type}] 수집 완료: {len(collected_data_map)}건")
+            curr_count = len(collected_data_map)
+            
+            # 데이터 변화 체크
+            if curr_count > last_count:
+                print(f"   ... 데이터 수집 중: {curr_count}건")
+                no_change_intervals = 0 # 데이터가 늘어나면 카운트 리셋
+            else:
+                no_change_intervals += 1
+            
+            # [핵심] 데이터가 20건 이상인데도 5번 연속 변화가 없다면 정말 끝인 것으로 간주
+            # 하지만 20건 미만이라면(첫 페이지 실패 상황) 더 끈질기게 기다림
+            if curr_count >= 20 and no_change_intervals >= 5:
+                break
+            
+            # 만약 20건에서 계속 멈춰있다면 스크롤 위치를 강제로 위아래로 흔들어 트리거 재발생
+            if curr_count == 20 and no_change_intervals == 3:
+                self.driver.execute_script(f"arguments[0].scrollTop = {scroll_y - 500}", list_area)
+                time.sleep(0.5)
+
+            last_count = curr_count
+
         return collected_data_map
+    
     def collect(self, target_type):
         print(f"\n🔎 [{target_type}] 프로세스 시작...")
         
